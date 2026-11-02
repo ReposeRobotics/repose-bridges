@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Template: use `repose::planners` (`CuPlannerChoice` / `CuAnyPlanner`) from
+  Repose v0.7.1 instead of the template's own `planner.rs`, and pin all Repose
+  dependencies (template, `repose-igus-cri`, `rebel_app`) to the `v0.7.1` tag.
+  The `planner` key in copperconfig.ron is unchanged.
+
 - Add streaming velocity control: `joint_command` in `velocity` mode streams
   CRI jog every 50 ms (feed-forward plus position feedback, speed cap, limit
   lookahead, 100 ms command timeout). Jog units measured on hardware: percent

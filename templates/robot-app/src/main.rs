@@ -4,7 +4,6 @@
 //!
 //! The arm MOVES: keep the e-stop in hand.
 
-mod planner;
 mod program;
 mod runner;
 
