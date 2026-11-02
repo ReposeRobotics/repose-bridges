@@ -1,0 +1,4 @@
+/target/
+/Cargo.lock
+/copperconfig.ron
+/*.copper

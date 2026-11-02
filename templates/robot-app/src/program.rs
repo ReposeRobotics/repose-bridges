@@ -24,9 +24,8 @@ pub fn steps() -> Vec<Step> {
         Offset([5.0, 5.0, 5.0, 5.0, 5.0, 5.0]),
         Offset([-5.0, -5.0, -5.0, -5.0, -5.0, -5.0]),
         Wait(1.0),
-        // bend the arm (collision-free path), then tool 3 cm up and back via IK
-        Plan([0.0, 30.0, 60.0, 0.0, 60.0, 0.0]),
-        Tool([0.0, 0.0, 0.03]),
-        Tool([0.0, 0.0, -0.03]),
+        // Add robot-appropriate absolute targets with Joints([...]) or Plan([...]).
+        // Tool([0.0, 0.0, 0.03]) moves 3 cm up using the selected model's IK.
+        // Absolute targets and reachable tool moves depend on the robot/start pose.
     ]
 }

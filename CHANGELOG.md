@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Template: select igus ReBeL or UR5e/URSim in `robot.ron`, then `cargo run`
+  the same program with the Repose v0.7.1 planner API. The build selects the
+  matching bridge/model RON profile. Include separate address prompts and
+  relative moves in the default program for either robot.
+
 - Template: use `repose::planners` (`CuPlannerChoice` / `CuAnyPlanner`) from
   Repose v0.7.1 instead of the template's own `planner.rs`, and pin all Repose
   dependencies (template, `repose-igus-cri`, `rebel_app`) to the `v0.7.1` tag.

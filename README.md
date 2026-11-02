@@ -6,18 +6,20 @@
 cargo install cargo-generate
 cargo generate gh:ReposeRobotics/repose-bridges templates/robot-app --name my_robot
 cd my_robot
-cargo run          # the arm MOVES: keep the e-stop in hand
+cargo run          # select igus_rebel or ur5e in robot.ron
 ```
 
 Write your program in `src/program.rs` as a list of steps: absolute joint
 moves, joint offsets, tool moves in metres (solved with Repose IK),
 collision-free planned moves (`Plan`, Repose RRT-Connect), and waits. Every
 move is timed into a smooth trajectory (Repose trajectory timing) and streamed
-to the robot; set `speed` and `acceleration` in `copperconfig.ron`. Before
+to the robot; set `speed` and `acceleration` in the selected robot profile. Before
 anything moves, every step is solved and checked for joint limits and
 self-collision; the program refuses to start if one fails.
-Pick the robot (bridge, address, speed) and its kinematic model in
-`copperconfig.ron`. Ctrl-C stops cleanly: drives off, control released.
+Select the robot in `robot.ron`. Configure its bridge, address, speed, model and
+planner in `robots/igus_rebel.ron` or `robots/ur5e.ron`; both run the same
+`src/program.rs`. The build generates the selected Copper graph. Ctrl-C stops
+cleanly: drives off, control released.
 
 Copper-native hardware bridges, grouped by manufacturer. Bridges use the
 vendor-neutral Repose robot contract from `repose-robot-interface`, with the
