@@ -1,0 +1,15 @@
+[workspace]
+members = ["igus/repose_igus_cri"]
+resolver = "3"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.95"
+license = "Apache-2.0"
+publish = false
+
+[workspace.dependencies]
+cu29 = { version = "1.3.1", features = ["units", "reflect"] }
+bincode = { package = "cu-bincode", version = "2.2.0", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
