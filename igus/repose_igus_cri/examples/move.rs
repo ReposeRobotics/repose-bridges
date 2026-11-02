@@ -9,8 +9,9 @@
 //!
 //! `--set J=DEG` sets joint J to an absolute angle; unset joints keep their
 //! measured value. `--back` returns to the start pose afterwards. Each joint
-//! may move at most `--max-step DEG` (default 10°, at most 90°) from the
-//! measured pose; the plan is checked before the drives are enabled. Sequence: AcquireControl, ClearFaults, EnableDrives, wait for
+//! may move at most `--max-step DEG` from the measured pose; without it the
+//! full range is allowed and only the ReBeL joint limits apply. The plan is
+//! checked before the drives are enabled. Sequence: AcquireControl, ClearFaults, EnableDrives, wait for
 //! drives ready, move at 5 % velocity, DisableDrives, ReleaseControl. Any
 //! failure stops; `stop` disables the drives.
 use cu29::prelude::*;
@@ -33,6 +34,8 @@ use std::time::Duration;
 use std::time::Instant;
 
 const STEP_DEG: f64 = 5.0;
+/// Larger than any ReBeL joint range: no step limit, joint limits still apply.
+const FULL_RANGE_DEG: f64 = 720.0;
 
 struct Run {
     bridge: CuIgusCriBridge,
@@ -198,9 +201,9 @@ fn main() -> CuResult<()> {
         Some(i) => args
             .get(i + 1)
             .and_then(|v| v.parse::<f64>().ok())
-            .filter(|v| *v > 0.0 && *v <= 90.0)
-            .ok_or_else(|| CuError::from("--max-step needs degrees in 0 < d <= 90"))?,
-        None => 10.0,
+            .filter(|v| *v > 0.0 && *v <= FULL_RANGE_DEG)
+            .ok_or_else(|| CuError::from("--max-step needs degrees in 0 < d <= 720"))?,
+        None => FULL_RANGE_DEG,
     };
     let params = CuIgusCriParams {
         address,
