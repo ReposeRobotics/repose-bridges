@@ -1,13 +1,18 @@
-//! First motion: move A6 by +5° and back with controller-planned `Move Joint`.
+//! Controller-planned `Move Joint` on a live ReBeL.
 //!
 //! ```sh
-//! move [ADDRESS]                 # print the plan only; does not connect
-//! move [ADDRESS] --allow-motion  # run it: the arm MOVES
+//! move [ADDRESS]                                  # print the plan only; does not connect
+//! move [ADDRESS] --allow-motion                   # A6 +5° and back
+//! move [ADDRESS] --allow-motion --set 6=33.5      # absolute angle (°) per joint, 1–6
+//! move [ADDRESS] --allow-motion --set 2=40 --set 3=55 --back
 //! ```
 //!
-//! Sequence: AcquireControl, ClearFaults, EnableDrives, wait for drives ready,
-//! move A6 +5° at 5 % velocity, wait until reached, move back, DisableDrives,
-//! ReleaseControl. Any failure stops; `stop` disables the drives.
+//! `--set J=DEG` sets joint J to an absolute angle; unset joints keep their
+//! measured value. `--back` returns to the start pose afterwards. Each joint
+//! may move at most `max_step` (10°) from the measured pose; larger targets
+//! are refused. Sequence: AcquireControl, ClearFaults, EnableDrives, wait for
+//! drives ready, move at 5 % velocity, DisableDrives, ReleaseControl. Any
+//! failure stops; `stop` disables the drives.
 use cu29::prelude::*;
 use cu29::units::si::angle::degree;
 use cu29::units::si::f64::Angle;
@@ -147,12 +152,44 @@ impl Run {
     }
 }
 
+/// `--set J=DEG` pairs as (0-based joint, degrees).
+fn parse_sets(args: &[String]) -> CuResult<Vec<(usize, f64)>> {
+    let mut sets = Vec::new();
+    let mut iter = args.iter();
+    while let Some(arg) = iter.next() {
+        if arg != "--set" {
+            continue;
+        }
+        let value = iter
+            .next()
+            .ok_or_else(|| CuError::from("--set needs J=DEG"))?;
+        let (joint, degrees) = value
+            .split_once('=')
+            .ok_or_else(|| CuError::from("--set needs J=DEG"))?;
+        let joint: usize = joint
+            .parse()
+            .ok()
+            .filter(|j| (1..=6).contains(j))
+            .ok_or_else(|| CuError::from("--set joint must be 1-6"))?;
+        let degrees: f64 = degrees
+            .parse()
+            .ok()
+            .filter(|d: &f64| d.is_finite())
+            .ok_or_else(|| CuError::from("--set angle must be a number in degrees"))?;
+        sets.push((joint - 1, degrees));
+    }
+    Ok(sets)
+}
+
 fn main() -> CuResult<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
+    let sets = parse_sets(&args)?;
+    let back = sets.is_empty() || args.iter().any(|a| a == "--back");
     let address = args
         .iter()
-        .find(|a| !a.starts_with("--"))
-        .cloned()
+        .enumerate()
+        .find(|(i, a)| !a.starts_with("--") && (*i == 0 || args[i - 1] != "--set"))
+        .map(|(_, a)| a.clone())
         .unwrap_or_else(|| "192.168.3.11:3920".into());
     let params = CuIgusCriParams {
         address,
@@ -161,8 +198,17 @@ fn main() -> CuResult<()> {
         velocity_percent: 5.0,
         ..Default::default()
     };
+    let plan = if sets.is_empty() {
+        format!("A6 +{STEP_DEG}°")
+    } else {
+        sets.iter()
+            .map(|(j, d)| format!("A{}={d}°", j + 1))
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
     println!(
-        "Plan: A6 +{STEP_DEG}° and back at {}% velocity, goal tolerance {:.1}°.",
+        "Plan: {plan}{} at {}% velocity, goal tolerance {:.1}°.",
+        if back { " and back" } else { "" },
         params.velocity_percent,
         params.goal_tolerance.get::<degree>()
     );
@@ -196,10 +242,15 @@ fn main() -> CuResult<()> {
                 let start_deg = start.map(|a| a.get::<degree>());
                 println!("Start joints {start_deg:.2?}");
                 let mut target = start;
-                target[5] = Angle::new::<degree>(start_deg[5] + STEP_DEG);
+                if sets.is_empty() {
+                    target[5] = Angle::new::<degree>(start_deg[5] + STEP_DEG);
+                }
+                for &(joint, degrees) in &sets {
+                    target[joint] = Angle::new::<degree>(degrees);
+                }
                 println!("Motion starts in 5 s. Press the e-stop to abort.");
                 run.wait(5.0, |_| false)?;
-                if run.move_to(target)? {
+                if run.move_to(target)? && back {
                     run.wait(1.0, |_| false)?;
                     run.move_to(start)?;
                 }
