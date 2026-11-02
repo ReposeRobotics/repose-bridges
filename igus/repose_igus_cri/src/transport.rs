@@ -21,7 +21,8 @@ use std::time::Duration;
 use std::time::Instant;
 
 pub(crate) const FRAME_CAPACITY: usize = 8192;
-pub(crate) const HEARTBEAT: Duration = Duration::from_millis(200);
+/// ALIVEJOG period; also the jog streaming rate (the vendor driver uses 50 ms).
+pub(crate) const HEARTBEAT: Duration = Duration::from_millis(50);
 pub(crate) const POLL: Duration = Duration::from_millis(20);
 
 /// State shared between the worker and the bridge.
@@ -37,14 +38,32 @@ pub(crate) struct Shared {
     pub velocity_percent: f64,
     /// Per-joint tolerance for a move to count as reached.
     pub goal_tolerance: Angle,
+    /// Jog percent per joint from the latest velocity command.
+    pub jog: [f64; 6],
+    /// The jog stays valid until this instant (command timeout).
+    pub jog_until: Option<Instant>,
     pub failed: bool,
 }
 
 impl Shared {
+    /// Jog to send now: the latest velocity command while it is fresh and the
+    /// session allows motion and no `Move Joint` is in flight, else zero.
+    pub(crate) fn active_jog(&mut self) -> [f64; 6] {
+        let state = self.session.state();
+        let fresh = self.jog_until.is_some_and(|until| Instant::now() < until);
+        if fresh && state.control_acquired && state.motion_allowed && !self.motion.in_flight() {
+            self.jog
+        } else {
+            self.jog_until = None;
+            [0.0; 6]
+        }
+    }
+
     pub(crate) fn fail(&mut self) {
         self.latest = None;
         self.session.on_disconnected();
         self.motion.on_disconnected();
+        self.jog_until = None;
         self.failed = true;
     }
 }
@@ -80,12 +99,20 @@ pub(crate) fn run(
     let mut status = CuCriStatus::default();
     while !shutdown.load(Ordering::Acquire) {
         if heartbeat.is_none_or(|last: Instant| last.elapsed() >= HEARTBEAT) {
-            // Jog values are always zero: this bridge commands no motion.
-            writeln!(
-                stream,
-                "CRISTART {} ALIVEJOG 0 0 0 0 0 0 0 0 0 CRIEND",
-                counter.next()
-            )
+            let jog = lock(shared)?.active_jog();
+            let sequence = counter.next();
+            if jog.iter().all(|v| *v == 0.0) {
+                writeln!(
+                    stream,
+                    "CRISTART {sequence} ALIVEJOG 0 0 0 0 0 0 0 0 0 CRIEND"
+                )
+            } else {
+                writeln!(
+                    stream,
+                    "CRISTART {sequence} ALIVEJOG {:.3} {:.3} {:.3} {:.3} {:.3} {:.3} 0 0 0 CRIEND",
+                    jog[0], jog[1], jog[2], jog[3], jog[4], jog[5]
+                )
+            }
             .map_err(|e| CuError::new_with_cause("CRI heartbeat failed", e))?;
             heartbeat = Some(Instant::now());
         }

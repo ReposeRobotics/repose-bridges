@@ -17,6 +17,8 @@
 //! (`CuBridge`).
 
 mod bridge;
+#[cfg(feature = "control")]
+mod jog;
 mod mapping;
 mod motion;
 mod params;
