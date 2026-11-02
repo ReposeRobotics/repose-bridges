@@ -21,7 +21,7 @@ cargo run -p rebel-app        # the minimal Copper program (igus/rebel_app)
 | Rx | `session_state` | `repose_robot_interface::CuSessionState` | standard; published on change |
 | Rx | `cri_status` | `repose_igus_cri::CuCriStatus` | vendor: joints, TCP pose, mode, error codes, KINSTATE, ESTOP, override |
 | Tx | `session` | `repose_robot_interface::CuSessionCommand` | standard; `control` feature only |
-| Tx | `joint_command` | `repose_controller::CuJointCommandPayload<6>` | standard; `control` feature + `allow_motion`; `position` mode only |
+| Tx | `joint_command` | `repose_controller::CuJointCommandPayload<6>` | standard; `control` feature + `allow_motion`; `position` (Move Joint) or `velocity` (streamed jog) |
 | Rx | `cri_motion` | `repose_igus_cri::CuCriMotionState` | vendor: move status, rejection reason, last `EXEC*` frame |
 
 `joint_state.status` (`CuRobotStatus`) is `Ready` when every drive reports code
@@ -147,6 +147,29 @@ frames are informational only; completion is judged from measured joints.
 ```sh
 cargo run -p repose-igus-cri --features control --example move -- 192.168.3.11:3920 --allow-motion
 ```
+
+## Motion (stage 2b: streaming velocity)
+
+`joint_command` with `mode: velocity` streams CRI jog: the bridge sends
+`ALIVEJOG` every 50 ms with per-joint percent of `jog_full_scale`. The jog is
+the command's feed-forward velocity plus `position_gain` × (commanded −
+measured position), clamped to `max_jog_percent`; a joint whose jog would
+cross its limit within 0.2 s is zeroed. Same opt-ins and gates as Move Joint
+(in control, motion allowed, no Move Joint in flight). A command older than
+`command_timeout` drops the jog to zero. Send commands every cycle and end a
+motion with zero velocity on the final position, so feedback settles it.
+
+| Param | Default | Notes |
+|---|---|---|
+| `jog_full_scale` | 60 °/s | measured: CRI jog is percent of max joint speed, linear, the same on A1–A6 |
+| `max_jog_percent` | 10 | 6 °/s |
+| `command_timeout` | 0.1 s | |
+| `position_gain` | 2.0 /s | |
+
+Verified on RobotControl V980-14 with `examples/jog.rs` (A6 ±3 °/s, 2 s legs):
+tracking error ≤ 0.02° at constant speed, about 1° lag for 0.5 s after a
+direction reversal (controller acceleration ramp), and 0.03° final error
+after a 1 s hold. The idle heartbeat stays `ALIVEJOG 0 0 0 0 0 0 0 0 0`.
 
 ## Connection behavior
 

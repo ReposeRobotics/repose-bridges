@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Add streaming velocity control: `joint_command` in `velocity` mode streams
+  CRI jog every 50 ms (feed-forward plus position feedback, speed cap, limit
+  lookahead, 100 ms command timeout). Jog units measured on hardware: percent
+  of 60 °/s, linear, on all axes. The heartbeat now runs at 50 ms, as in the
+  vendor driver. Adds a `jog` example and a `cargo jog` alias.
+
 - Add point-to-point motion: Tx `joint_command` (`CuJointCommandPayload<6>`,
   position mode) sends controller-planned `Move Joint`, behind a third opt-in
   `allow_motion`. The bridge applies local gates (in control, motion allowed,

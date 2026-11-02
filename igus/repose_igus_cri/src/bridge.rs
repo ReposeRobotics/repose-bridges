@@ -1,5 +1,9 @@
 //! The `CuBridge`: standard Repose channels plus the vendor `cri_status` channel.
 
+#[cfg(feature = "control")]
+use crate::jog::JogLimits;
+#[cfg(feature = "control")]
+use crate::jog::jog_percent;
 use crate::mapping;
 #[cfg(feature = "control")]
 use crate::motion::MoveContext;
@@ -78,6 +82,12 @@ pub struct CuIgusCriBridge {
     worker: Option<JoinHandle<()>>,
     #[reflect(ignore)]
     stale_after: Duration,
+    #[cfg(feature = "control")]
+    #[reflect(ignore)]
+    jog_limits: JogLimits,
+    #[cfg(feature = "control")]
+    #[reflect(ignore)]
+    command_timeout: Duration,
 }
 
 impl CuIgusCriBridge {
@@ -85,7 +95,19 @@ impl CuIgusCriBridge {
     pub fn from_params(params: CuIgusCriParams) -> CuResult<Self> {
         params.validate()?;
         let stale_after = duration(params.stale_after)?;
+        #[cfg(feature = "control")]
+        let jog_limits = JogLimits {
+            full_scale: params.jog_full_scale,
+            max_percent: params.max_jog_percent,
+            position_gain: params.position_gain,
+        };
+        #[cfg(feature = "control")]
+        let command_timeout = duration(params.command_timeout)?;
         Ok(Self {
+            #[cfg(feature = "control")]
+            jog_limits,
+            #[cfg(feature = "control")]
+            command_timeout,
             params,
             seen_joint_state: 0,
             seen_cri_status: 0,
@@ -252,9 +274,30 @@ impl CuBridge for CuIgusCriBridge {
                         "CRI motion requires allow_motion = true in the bridge config",
                     ));
                 }
+                if command.mode == CuControllerMode::Velocity {
+                    self.running()?;
+                    let mut shared = self
+                        .shared
+                        .lock()
+                        .map_err(|_| CuError::from("CRI worker state poisoned"))?;
+                    if shared.failed {
+                        return Err(CuError::from(
+                            "CRI transport or protocol failed; restart bridge",
+                        ));
+                    }
+                    // Without a fresh measurement there is no feedback: send nothing.
+                    let Some((_, measured)) = shared.latest.as_ref() else {
+                        return Ok(());
+                    };
+                    let jog =
+                        jog_percent(command, measured, &self.jog_limits).map_err(CuError::from)?;
+                    shared.jog = jog;
+                    shared.jog_until = Some(Instant::now() + self.command_timeout);
+                    return Ok(());
+                }
                 if command.mode != CuControllerMode::Position {
                     return Err(CuError::from(
-                        "CRI bridge supports only position joint commands (Move Joint)",
+                        "CRI bridge supports position (Move Joint) and velocity (jog) commands",
                     ));
                 }
                 let mut target = [cu29::units::si::f64::Angle::default(); 6];
@@ -598,8 +641,8 @@ mod tests {
             let (mut peer, _) = listener.accept().unwrap();
             peer.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
 
-            // Velocity mode is stage 2b.
-            let jog = move_command(5.0, CuControllerMode::Velocity);
+            // Effort mode is not supported.
+            let jog = move_command(5.0, CuControllerMode::Effort);
             assert!(
                 bridge
                     .send(&ctx, &IgusCriTxChannels::JOINT_COMMAND, &jog)
@@ -689,6 +732,67 @@ mod tests {
                 assert!(Instant::now() < deadline);
                 std::thread::sleep(Duration::from_millis(2));
             }
+            bridge.stop(&ctx).unwrap();
+        }
+
+        #[test]
+        fn test_velocity_streams_jog_and_times_out() {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let mut bridge = CuIgusCriBridge::from_params(CuIgusCriParams {
+                address: listener.local_addr().unwrap().to_string(),
+                allow_control: true,
+                allow_motion: true,
+                ..Default::default()
+            })
+            .unwrap();
+            let (ctx, _) = CuContext::new_mock_clock();
+            bridge.start(&ctx).unwrap();
+            let (mut peer, _) = listener.accept().unwrap();
+            peer.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+            writeln!(peer, "CRISTART 1 CMD Active true CRIEND").unwrap();
+            writeln!(peer, "{}", status_frame(0.0)).unwrap();
+            wait(&bridge, |s| s.control_acquired && s.motion_allowed);
+            let deadline = Instant::now() + Duration::from_secs(2);
+            while bridge.shared.lock().unwrap().latest.is_none() {
+                assert!(Instant::now() < deadline);
+                std::thread::sleep(Duration::from_millis(2));
+            }
+            // 3 deg/s on every joint, positions on target: 5 % jog.
+            let mut payload = CuJointCommandPayload::<6> {
+                mode: CuControllerMode::Velocity,
+                ..Default::default()
+            };
+            payload.velocities = [repose_kinematics::CuJointVelocity::Revolute(
+                cu29::units::si::f64::AngularVelocity::new::<
+                    cu29::units::si::angular_velocity::degree_per_second,
+                >(3.0),
+            ); 6];
+            let mut msg = CuMsg::<CuJointCommandPayload<6>>::default();
+            msg.set_payload(payload);
+            bridge
+                .send(&ctx, &IgusCriTxChannels::JOINT_COMMAND, &msg)
+                .unwrap();
+            let line = loop {
+                let line = read_line(&mut peer);
+                if line.contains("ALIVEJOG") && !line.contains("ALIVEJOG 0 0") {
+                    break line;
+                }
+            };
+            assert!(
+                line.contains("ALIVEJOG 5.000 5.000 5.000 5.000 5.000 5.000 0 0 0"),
+                "{line}"
+            );
+            // No new command: back to zero after the 100 ms timeout.
+            std::thread::sleep(Duration::from_millis(250));
+            let mut zero = false;
+            for _ in 0..10 {
+                let line = read_line(&mut peer);
+                if line.contains("ALIVEJOG 0 0 0 0 0 0 0 0 0") {
+                    zero = true;
+                    break;
+                }
+            }
+            assert!(zero);
             bridge.stop(&ctx).unwrap();
         }
 

@@ -4,3 +4,4 @@
 [alias]
 move = "run -p repose-igus-cri --features control --example move --"
 session = "run -p repose-igus-cri --features control --example session --"
+jog = "run -p repose-igus-cri --features control --example jog --"

@@ -49,7 +49,7 @@ impl MotionTracker {
         core::mem::take(&mut self.changed)
     }
 
-    fn in_flight(&self) -> bool {
+    pub(crate) fn in_flight(&self) -> bool {
         matches!(
             self.state.status,
             CuCriMotionStatus::Pending | CuCriMotionStatus::Moving

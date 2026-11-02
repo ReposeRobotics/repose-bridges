@@ -1,6 +1,8 @@
 use cu29::prelude::*;
 use cu29::units::si::angle::degree;
+use cu29::units::si::angular_velocity::degree_per_second;
 use cu29::units::si::f64::Angle;
+use cu29::units::si::f64::AngularVelocity;
 use cu29::units::si::f64::Time;
 use cu29::units::si::time::second;
 use serde::Deserialize;
@@ -32,6 +34,16 @@ pub struct CuIgusCriParams {
     /// Goal tolerance: every joint must be within this tolerance for a move
     /// to be considered reached.
     pub goal_tolerance: Angle,
+    /// Joint speed at 100 % CRI jog. Measured on a ReBeL (V980-14): 60 °/s on
+    /// every axis, linear.
+    pub jog_full_scale: AngularVelocity,
+    /// Largest jog sent for velocity commands, percent of `jog_full_scale`
+    /// (0 < p <= 100).
+    pub max_jog_percent: f64,
+    /// Velocity commands older than this are replaced by zero jog.
+    pub command_timeout: Time,
+    /// Position-error feedback for velocity commands, 1/s (>= 0).
+    pub position_gain: f64,
 }
 
 impl Default for CuIgusCriParams {
@@ -45,6 +57,10 @@ impl Default for CuIgusCriParams {
             velocity_percent: 5.0,
             max_step: None,
             goal_tolerance: Angle::new::<degree>(0.5),
+            jog_full_scale: AngularVelocity::new::<degree_per_second>(60.0),
+            max_jog_percent: 10.0,
+            command_timeout: Time::new::<second>(0.1),
+            position_gain: 2.0,
         }
     }
 }
@@ -76,6 +92,19 @@ impl CuIgusCriParams {
             return Err(CuError::from(
                 "CRI goal_tolerance must be finite and positive",
             ));
+        }
+        let full = self.jog_full_scale.get::<degree_per_second>();
+        if !full.is_finite() || full <= 0.0 {
+            return Err(CuError::from(
+                "CRI jog_full_scale must be finite and positive",
+            ));
+        }
+        if !(self.max_jog_percent > 0.0 && self.max_jog_percent <= 100.0) {
+            return Err(CuError::from("CRI max_jog_percent must be in 0 < p <= 100"));
+        }
+        duration(self.command_timeout)?;
+        if !(self.position_gain.is_finite() && self.position_gain >= 0.0) {
+            return Err(CuError::from("CRI position_gain must be finite and >= 0"));
         }
         Ok(())
     }
