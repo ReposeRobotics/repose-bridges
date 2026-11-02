@@ -1,0 +1,30 @@
+//! Minimal Copper program for an igus ReBeL: the graph is `copperconfig.ron`,
+//! the behaviour is the `sequence` task. Runs until the sequence finishes or
+//! Ctrl-C, then stops the app so the bridge disables the drives and releases
+//! control.
+//!
+//! The arm MOVES: keep the e-stop in hand.
+
+mod sequence;
+
+use cu29::prelude::*;
+use std::sync::atomic::Ordering;
+
+#[copper_runtime(config = "copperconfig.ron")]
+struct RebelApp {}
+
+fn main() -> CuResult<()> {
+    ctrlc::set_handler(|| sequence::DONE.store(true, Ordering::Release))
+        .map_err(|e| CuError::new_with_cause("Ctrl-C handler", e))?;
+    let log = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("rebel_app.copper");
+    let mut app = RebelApp::builder()
+        .with_log_path(log, None)?
+        .build()?
+        .start()
+        .map_err(|fault| fault.error)?;
+    while !sequence::DONE.load(Ordering::Acquire) {
+        app.run_one_iteration()?;
+    }
+    app.stop().map_err(|fault| fault.error)?;
+    Ok(())
+}

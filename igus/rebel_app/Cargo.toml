@@ -1,0 +1,21 @@
+[package]
+name = "rebel-app"
+description = "Minimal Copper application driving an igus ReBeL through repose-igus-cri"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+cu29.workspace = true
+bincode.workspace = true
+serde.workspace = true
+ctrlc = "3"
+repose-igus-cri = { path = "../repose_igus_cri", features = ["control"] }
+repose-controller = { git = "https://github.com/ReposeRobotics/repose.git", rev = "b1d64c936fcd26707f072e6061deb5826475a675" }
+repose-kinematics = { git = "https://github.com/ReposeRobotics/repose.git", rev = "b1d64c936fcd26707f072e6061deb5826475a675" }
+repose-robot-interface = { git = "https://github.com/ReposeRobotics/repose.git", rev = "b1d64c936fcd26707f072e6061deb5826475a675" }
+
+[build-dependencies]
+cu29-build = "1.3.0"

@@ -2,3 +2,4 @@
 Cargo.lock
 /artifacts/
 __pycache__/
+/igus/rebel_app/rebel_app*.copper
