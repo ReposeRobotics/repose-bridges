@@ -1,0 +1,58 @@
+// The whole program: one sequence task and the ReBeL bridge.
+// Swap the bridge `type` for repose_mujoco_sim::CuMujocoSimBridge to run the
+// same graph in simulation (that bridge has no session channels).
+(
+    runtime: (rate_target_hz: 50),
+    tasks: [
+        (
+            id: "sequence",
+            type: "sequence::RebelSequence",
+            // Moves run in order. Each is A1-A6 offsets in radians from the
+            // previous target (0.0873 rad = 5 deg); all joints of one move
+            // travel together, zero offsets stay still. After the last move
+            // the arm returns to the start pose.
+            config: {"moves": [
+                // all joints at once, out and back
+                {"steps": [0.0873, 0.0873, 0.0873, 0.0873, 0.0873, 0.0873]},
+                {"steps": [-0.0873, -0.0873, -0.0873, -0.0873, -0.0873, -0.0873]},
+                // then each joint on its own, out and back
+                {"steps": [0.0873, 0.0, 0.0, 0.0, 0.0, 0.0]},
+                {"steps": [-0.0873, 0.0, 0.0, 0.0, 0.0, 0.0]},
+                {"steps": [0.0, 0.0873, 0.0, 0.0, 0.0, 0.0]},
+                {"steps": [0.0, -0.0873, 0.0, 0.0, 0.0, 0.0]},
+                {"steps": [0.0, 0.0, 0.0873, 0.0, 0.0, 0.0]},
+                {"steps": [0.0, 0.0, -0.0873, 0.0, 0.0, 0.0]},
+                {"steps": [0.0, 0.0, 0.0, 0.0873, 0.0, 0.0]},
+                {"steps": [0.0, 0.0, 0.0, -0.0873, 0.0, 0.0]},
+                {"steps": [0.0, 0.0, 0.0, 0.0, 0.0873, 0.0]},
+                {"steps": [0.0, 0.0, 0.0, 0.0, -0.0873, 0.0]},
+                {"steps": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0873]},
+                {"steps": [0.0, 0.0, 0.0, 0.0, 0.0, -0.0873]},
+            ]},
+        ),
+    ],
+    bridges: [
+        (
+            id: "rebel",
+            type: "repose_igus_cri::CuIgusCriBridge",
+            config: {
+                "address": "192.168.3.11:3920",
+                "allow_control": true,
+                "allow_motion": true,
+                "velocity_percent": 15.0,
+            },
+            channels: [
+                Rx(id: "joint_state", msg: "repose_kinematics::CuJointStatePayload<6>"),
+                Rx(id: "session_state", msg: "repose_robot_interface::CuSessionState"),
+                Tx(id: "session", msg: "repose_robot_interface::CuSessionCommand"),
+                Tx(id: "joint_command", msg: "repose_controller::CuJointCommandPayload<6>"),
+            ],
+        ),
+    ],
+    cnx: [
+        (src: "rebel/joint_state", dst: "sequence", msg: "repose_kinematics::CuJointStatePayload<6>"),
+        (src: "rebel/session_state", dst: "sequence", msg: "repose_robot_interface::CuSessionState"),
+        (src: "sequence", dst: "rebel/session", msg: "repose_robot_interface::CuSessionCommand"),
+        (src: "sequence", dst: "rebel/joint_command", msg: "repose_controller::CuJointCommandPayload<6>"),
+    ],
+)

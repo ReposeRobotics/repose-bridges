@@ -1,0 +1,39 @@
+// The program graph: the `robot_program` task (your steps in src/program.rs)
+// and one robot bridge. To use another robot, change the bridge `type` and
+// its `config`, and the task's `chain` (kinematic model for IK).
+(
+    runtime: (rate_target_hz: 50),
+    tasks: [
+        (
+            id: "program",
+            type: "runner::RobotProgram",
+            // Kinematic model used for tool (Cartesian) moves: a preset name
+            // or an inline chain, see repose_kinematics::CuChainSpec.
+            config: {"chain": "igus_rebel"},
+        ),
+    ],
+    bridges: [
+        (
+            id: "robot",
+            type: "repose_igus_cri::CuIgusCriBridge",
+            config: {
+                "address": "{{robot_address}}",
+                "allow_control": true,
+                "allow_motion": true,
+                "velocity_percent": 5.0,
+            },
+            channels: [
+                Rx(id: "joint_state", msg: "repose_kinematics::CuJointStatePayload<6>"),
+                Rx(id: "session_state", msg: "repose_robot_interface::CuSessionState"),
+                Tx(id: "session", msg: "repose_robot_interface::CuSessionCommand"),
+                Tx(id: "joint_command", msg: "repose_controller::CuJointCommandPayload<6>"),
+            ],
+        ),
+    ],
+    cnx: [
+        (src: "robot/joint_state", dst: "program", msg: "repose_kinematics::CuJointStatePayload<6>"),
+        (src: "robot/session_state", dst: "program", msg: "repose_robot_interface::CuSessionState"),
+        (src: "program", dst: "robot/session", msg: "repose_robot_interface::CuSessionCommand"),
+        (src: "program", dst: "robot/joint_command", msg: "repose_controller::CuJointCommandPayload<6>"),
+    ],
+)

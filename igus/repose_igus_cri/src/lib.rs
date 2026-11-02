@@ -18,6 +18,7 @@
 
 mod bridge;
 mod mapping;
+mod motion;
 mod params;
 mod protocol;
 mod transport;
@@ -29,5 +30,8 @@ pub use bridge::IgusCriTxChannels;
 pub use bridge::IgusCriTxId;
 pub use params::CuIgusCriParams;
 pub use protocol::CuCriCartesianPose;
+pub use protocol::CuCriMotionRejection;
+pub use protocol::CuCriMotionState;
+pub use protocol::CuCriMotionStatus;
 pub use protocol::CuCriStatus;
 pub use protocol::CuCriText;

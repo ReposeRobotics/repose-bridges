@@ -35,7 +35,7 @@ pub struct CuCriText {
 }
 
 impl CuCriText {
-    fn new(text: &str) -> Self {
+    pub(crate) fn new(text: &str) -> Self {
         let mut take = text.len().min(32);
         while !text.is_char_boundary(take) {
             take -= 1;
@@ -116,6 +116,101 @@ impl CuCriStatus {
     }
 }
 
+/// Status of a Move Joint command.
+#[derive(
+    Default,
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    bincode::Encode,
+    bincode::Decode,
+    Serialize,
+    Deserialize,
+    Reflect,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum CuCriMotionStatus {
+    /// No motion commanded.
+    #[default]
+    Idle,
+    /// Command queued or sent to the controller; waiting for acknowledgement.
+    Pending,
+    /// Controller acknowledged move; robot moving toward target.
+    Moving,
+    /// Target reached within configured goal tolerance.
+    Reached,
+    /// Command rejected locally or by the controller.
+    Rejected,
+    /// Motion aborted mid-flight (control lost, drives not ready, fault, or disconnect).
+    Aborted,
+}
+
+/// Why a motion request was rejected or aborted.
+#[derive(
+    Default,
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    bincode::Encode,
+    bincode::Decode,
+    Serialize,
+    Deserialize,
+    Reflect,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum CuCriMotionRejection {
+    #[default]
+    None,
+    /// Refused locally: session does not hold control.
+    NotInControl,
+    /// Refused locally: drives are not ready or motion is not allowed.
+    MotionNotAllowed,
+    /// Refused locally: target exceeds configured joint limits.
+    JointLimits,
+    /// Refused locally: step from current position exceeds `max_step`.
+    MaxStepExceeded,
+    /// Refused locally: another move is currently in flight.
+    MoveInFlight,
+    /// Rejected by controller via CMDERROR; `detail` holds the controller message.
+    Controller,
+    /// Motion aborted mid-flight.
+    Aborted,
+}
+
+/// Move tracking state published on the `cri_motion` Rx channel.
+#[derive(
+    Default,
+    Debug,
+    Clone,
+    PartialEq,
+    bincode::Encode,
+    bincode::Decode,
+    Serialize,
+    Deserialize,
+    Reflect,
+)]
+pub struct CuCriMotionState {
+    /// Client sequence counter the move was sent with.
+    pub sequence: u32,
+    /// Commanded target joint angles.
+    pub target: [Angle; 6],
+    /// Current motion execution status.
+    pub status: CuCriMotionStatus,
+    /// Rejection or abort reason, when `status` is `Rejected` or `Aborted`.
+    pub rejection: CuCriMotionRejection,
+    /// Controller text accompanying a rejection or abort detail.
+    pub detail: CuCriText,
+    /// Different targets refused because a move was in flight.
+    pub refused: u32,
+    /// Last `EXECACK`/`EXECEND`/`EXECERROR` frame, verbatim (informational:
+    /// their format is unverified on this firmware).
+    pub last_exec: CuCriText,
+}
+
 /// One decoded server frame.
 #[derive(Debug)]
 pub(crate) enum CriFrame<'a> {
@@ -125,6 +220,10 @@ pub(crate) enum CriFrame<'a> {
     Rejected(u32, &'a str),
     /// `CMD Active true|false`: whether this connection is in control.
     Active(bool),
+    /// Informational program execution frames (unverified on this firmware).
+    ExecAck(&'a str),
+    ExecEnd(&'a str),
+    ExecError(&'a str),
     Other,
 }
 
@@ -137,6 +236,24 @@ pub(crate) fn command_keyword(command: CuSessionCommand) -> &'static str {
         CuSessionCommand::EnableDrives => "Enable",
         CuSessionCommand::DisableDrives => "Disable",
     }
+}
+
+/// Format a `CMD Move Joint` CRI command line.
+pub(crate) fn format_move_joint(
+    sequence: u16,
+    target: &[Angle; 6],
+    velocity_percent: f64,
+) -> String {
+    let [a1, a2, a3, a4, a5, a6] = target;
+    format!(
+        "CRISTART {sequence} CMD Move Joint {:.1} {:.1} {:.1} {:.1} {:.1} {:.1} 0 0 0 {velocity_percent} CRIEND",
+        a1.get::<degree>(),
+        a2.get::<degree>(),
+        a3.get::<degree>(),
+        a4.get::<degree>(),
+        a5.get::<degree>(),
+        a6.get::<degree>(),
+    )
 }
 
 /// Decode one frame that ends in `CRIEND`. A `STATUS` frame is written into
@@ -185,6 +302,9 @@ pub(crate) fn decode<'a>(frame: &'a str, status: &mut CuCriStatus) -> CuResult<C
             (Some("Active"), Some("false")) => CriFrame::Active(false),
             _ => CriFrame::Other,
         },
+        Some("EXECACK") => CriFrame::ExecAck(body("EXECACK")),
+        Some("EXECEND") => CriFrame::ExecEnd(body("EXECEND")),
+        Some("EXECERROR") => CriFrame::ExecError(body("EXECERROR")),
         _ => CriFrame::Other,
     })
 }
@@ -342,6 +462,35 @@ pub(crate) mod tests {
         decode(frame, &mut CuCriStatus::default())
     }
 
+    #[test]
+    fn test_move_joint_format_and_exec_frames() {
+        let target = [
+            Angle::new::<degree>(0.0),
+            Angle::new::<degree>(10.5),
+            Angle::new::<degree>(-20.0),
+            Angle::new::<degree>(30.12),
+            Angle::new::<degree>(0.0),
+            Angle::new::<degree>(-5.0),
+        ];
+        let line = format_move_joint(42, &target, 5.0);
+        assert_eq!(
+            line,
+            "CRISTART 42 CMD Move Joint 0.0 10.5 -20.0 30.1 0.0 -5.0 0 0 0 5 CRIEND"
+        );
+
+        match decode_any("CRISTART 10 EXECACK 1 0 CRIEND").unwrap() {
+            CriFrame::ExecAck(detail) => assert_eq!(detail, "1 0"),
+            other => panic!("{other:?}"),
+        }
+        match decode_any("CRISTART 11 EXECEND 1 0 PLAN CRIEND").unwrap() {
+            CriFrame::ExecEnd(detail) => assert_eq!(detail, "1 0 PLAN"),
+            other => panic!("{other:?}"),
+        }
+        match decode_any("CRISTART 12 EXECERROR 1 0 collision CRIEND").unwrap() {
+            CriFrame::ExecError(detail) => assert_eq!(detail, "1 0 collision"),
+            other => panic!("{other:?}"),
+        }
+    }
     #[test]
     fn test_replies() {
         assert!(matches!(

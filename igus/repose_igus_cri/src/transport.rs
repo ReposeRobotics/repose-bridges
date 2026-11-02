@@ -1,12 +1,15 @@
 //! TCP worker thread: owns the socket, decodes frames, and shares the latest
 //! observation and session with the Copper side.
 
+use crate::motion::MotionTracker;
 use crate::protocol::CriFrame;
 use crate::protocol::CuCriStatus;
 use crate::protocol::MAX_COUNTER;
 use crate::protocol::command_keyword;
 use crate::protocol::decode;
+use crate::protocol::format_move_joint;
 use cu29::prelude::*;
+use cu29::units::si::f64::Angle;
 use repose_robot_interface::CuSessionTracker;
 use std::io::Read;
 use std::io::Write;
@@ -29,6 +32,11 @@ pub(crate) struct Shared {
     /// Incremented per `STATUS`; channels consume each generation once.
     pub generation: u64,
     pub session: CuSessionTracker,
+    pub motion: MotionTracker,
+    /// Move Joint velocity in percent of the controller maximum.
+    pub velocity_percent: f64,
+    /// Per-joint tolerance for a move to count as reached.
+    pub goal_tolerance: Angle,
     pub failed: bool,
 }
 
@@ -36,6 +44,7 @@ impl Shared {
     pub(crate) fn fail(&mut self) {
         self.latest = None;
         self.session.on_disconnected();
+        self.motion.on_disconnected();
         self.failed = true;
     }
 }
@@ -93,6 +102,16 @@ pub(crate) fn run(
                 .session
                 .mark_sent(command, u32::from(sequence));
         }
+        let (target, velocity) = {
+            let mut shared = lock(shared)?;
+            (shared.motion.take_outgoing(), shared.velocity_percent)
+        };
+        if let Some(target) = target {
+            let sequence = counter.next();
+            writeln!(stream, "{}", format_move_joint(sequence, &target, velocity))
+                .map_err(|e| CuError::new_with_cause("CRI move failed", e))?;
+            lock(shared)?.motion.mark_sent(u32::from(sequence));
+        }
         match stream.read(&mut bytes) {
             Ok(0) => return Err(CuError::from("CRI peer disconnected")),
             Ok(count) => {
@@ -129,11 +148,26 @@ fn apply(frame: CriFrame<'_>, status: &CuCriStatus, shared: &mut Shared) {
             shared
                 .session
                 .on_drive_report(status.drives_ready(), status.motion_allowed());
+            let tolerance = shared.goal_tolerance;
+            let Shared {
+                session, motion, ..
+            } = shared;
+            motion.on_status(status, session.state(), tolerance);
             shared.latest = Some((Instant::now(), status.clone()));
             shared.generation = shared.generation.wrapping_add(1);
         }
-        CriFrame::Acknowledged(sequence) => shared.session.on_acknowledged(sequence),
-        CriFrame::Rejected(sequence, detail) => shared.session.on_rejected(sequence, detail),
+        CriFrame::Acknowledged(sequence) => {
+            shared.session.on_acknowledged(sequence);
+            shared.motion.on_acknowledged(sequence);
+        }
+        CriFrame::Rejected(sequence, detail) => {
+            shared.session.on_rejected(sequence, detail);
+            shared.motion.on_rejected(sequence, detail);
+        }
+        // Informational; their format is unverified on this firmware.
+        CriFrame::ExecAck(body) => shared.motion.on_exec("EXECACK", body),
+        CriFrame::ExecEnd(body) => shared.motion.on_exec("EXECEND", body),
+        CriFrame::ExecError(body) => shared.motion.on_exec("EXECERROR", body),
         CriFrame::Active(active) => shared.session.on_control_report(active),
         CriFrame::Other => {}
     }

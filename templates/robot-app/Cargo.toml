@@ -1,0 +1,22 @@
+[package]
+name = "{{project-name}}"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.95"
+publish = false
+
+[dependencies]
+cu29 = { version = "1.3.1", features = ["units", "reflect"] }
+bincode = { package = "cu-bincode", version = "2.2.0", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+ctrlc = "3"
+cu-spatial-payloads = "1.3.0"
+# Robot bridges (pick the robot in copperconfig.ron).
+repose-igus-cri = { git = "https://github.com/ReposeRobotics/repose-bridges.git", branch = "master", features = ["control"] }
+# Repose: kinematics/IK, the robot contract, joint commands.
+repose-controller = { git = "https://github.com/ReposeRobotics/repose.git", rev = "d72392230e6eb2c6ff8eae18b063fe9ac31a69f9" }
+repose-kinematics = { git = "https://github.com/ReposeRobotics/repose.git", rev = "d72392230e6eb2c6ff8eae18b063fe9ac31a69f9" }
+repose-robot-interface = { git = "https://github.com/ReposeRobotics/repose.git", rev = "d72392230e6eb2c6ff8eae18b063fe9ac31a69f9" }
+
+[build-dependencies]
+cu29-build = "1.3.0"
