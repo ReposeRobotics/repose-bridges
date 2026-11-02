@@ -8,7 +8,8 @@
 //! - `Tool([x, y, z])`  move the tool by x/y/z metres in the base frame,
 //!   keeping its orientation (solved with Repose IK)
 //! - `Plan([..])`       absolute joint angles, degrees, reached along a
-//!   collision-free path from the planner (see copperconfig.ron)
+//!   collision-free path from the planner (`"planner"` in copperconfig.ron:
+//!   rrt_connect, rrt_star, prm, a_star, stomp, path_optimizer, direct)
 //! - `Wait(s)`          hold for `s` seconds
 //!
 //! Before anything moves, every step is solved and collision-checked; the
