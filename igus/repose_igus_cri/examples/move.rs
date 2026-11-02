@@ -9,8 +9,8 @@
 //!
 //! `--set J=DEG` sets joint J to an absolute angle; unset joints keep their
 //! measured value. `--back` returns to the start pose afterwards. Each joint
-//! may move at most `max_step` (10°) from the measured pose; larger targets
-//! are refused. Sequence: AcquireControl, ClearFaults, EnableDrives, wait for
+//! may move at most `--max-step DEG` (default 10°, at most 90°) from the
+//! measured pose; the plan is checked before the drives are enabled. Sequence: AcquireControl, ClearFaults, EnableDrives, wait for
 //! drives ready, move at 5 % velocity, DisableDrives, ReleaseControl. Any
 //! failure stops; `stop` disables the drives.
 use cu29::prelude::*;
@@ -188,14 +188,26 @@ fn main() -> CuResult<()> {
     let address = args
         .iter()
         .enumerate()
-        .find(|(i, a)| !a.starts_with("--") && (*i == 0 || args[i - 1] != "--set"))
+        .find(|(i, a)| {
+            !a.starts_with("--")
+                && (*i == 0 || !matches!(args[i - 1].as_str(), "--set" | "--max-step"))
+        })
         .map(|(_, a)| a.clone())
         .unwrap_or_else(|| "192.168.3.11:3920".into());
+    let max_step = match args.iter().position(|a| a == "--max-step") {
+        Some(i) => args
+            .get(i + 1)
+            .and_then(|v| v.parse::<f64>().ok())
+            .filter(|v| *v > 0.0 && *v <= 90.0)
+            .ok_or_else(|| CuError::from("--max-step needs degrees in 0 < d <= 90"))?,
+        None => 10.0,
+    };
     let params = CuIgusCriParams {
         address,
         allow_control: true,
         allow_motion: true,
         velocity_percent: 5.0,
+        max_step: Angle::new::<degree>(max_step),
         ..Default::default()
     };
     let plan = if sets.is_empty() {
@@ -230,6 +242,23 @@ fn main() -> CuResult<()> {
     };
     run.bridge.start(&run.ctx)?;
     run.wait(2.0, |r| r.joints.is_some())?;
+    // Check the plan against the measured pose before touching the drives.
+    let Some(measured) = run.joints else {
+        run.bridge.stop(&run.ctx)?;
+        return Err(CuError::from("no joint state from the controller"));
+    };
+    for &(joint, degrees) in &sets {
+        let from = measured[joint].get::<degree>();
+        if (degrees - from).abs() > max_step {
+            run.bridge.stop(&run.ctx)?;
+            println!(
+                "Refused before enabling: A{} {from:.1}° → {degrees}° is {:.1}°, over --max-step {max_step}°.",
+                joint + 1,
+                (degrees - from).abs()
+            );
+            return Ok(());
+        }
+    }
 
     let ok = run.session_command(CuSessionCommand::AcquireControl)?
         && run.session_command(CuSessionCommand::ClearFaults)?
