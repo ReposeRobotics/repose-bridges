@@ -5,6 +5,14 @@
 
 use cu29::prelude::*;
 use cu29::units::si::angle::degree;
+use cu29::units::si::angular_acceleration::degree_per_second_squared;
+use cu29::units::si::angular_velocity::degree_per_second;
+use cu29::units::si::f64::AngularAcceleration;
+use cu29::units::si::f64::AngularVelocity;
+use cu29::units::si::f64::Time;
+use cu29::units::si::time::second;
+use repose_kinematics::CuJointAcceleration;
+use repose_kinematics::CuJointVelocity;
 use cu29::units::si::f64::Angle;
 use cu29::units::si::f64::Length;
 use cu29::units::si::length::meter;
@@ -20,6 +28,13 @@ use repose_motion_planning::CuJointPlanner;
 use repose_motion_planning::CuJointRrtConnect;
 use repose_motion_planning::CuJointRrtConnectParams;
 use repose_motion_planning::CuSceneValidity;
+use repose_trajectory::CuJointTrajectoryLimits;
+use repose_trajectory::CuTimingOverrides;
+use repose_trajectory::CuTimingParams;
+use repose_trajectory::CuTimingStatus;
+use repose_trajectory::CuTrajectoryPayload;
+use repose_trajectory::CuTrajectoryProfile;
+use repose_trajectory::parameterize;
 use repose_kinematics::CuIkParams;
 use repose_kinematics::CuIkStatus;
 use repose_kinematics::CuJointPosition;
@@ -44,6 +59,11 @@ const PLAN_SETTLE_S: f64 = 0.5;
 const PLAN_BUDGET: u32 = 64;
 /// Joint-space sampling step for segment collision checks, degrees.
 const SEGMENT_STEP_DEG: f64 = 2.0;
+/// Trajectory capacity: points sampled every `SAMPLE_S`.
+const TRAJECTORY_POINTS: usize = 1024;
+const SAMPLE_S: f64 = 0.05;
+/// After a trajectory ends, wait at most this long for the arm to settle.
+const SETTLE_S: f64 = 3.0;
 
 /// One program step; see `program.rs`.
 #[allow(dead_code)] // programs use whichever variants they need
@@ -62,15 +82,15 @@ pub enum Step {
     Plan([f64; 6]),
 }
 
-/// Progress of a `Plan` step.
+/// Progress of the current motion step.
 #[derive(Debug, Clone, Default)]
 enum Planning {
     #[default]
     Idle,
     /// Planner running; `first_path` is when it first had a path.
     Searching { first_path: Option<CuTime> },
-    /// Executing waypoint `next` of the path.
-    Executing { waypoints: Vec<[CuJointPosition; 6]>, next: usize },
+    /// Streaming the timed trajectory toward `goal` since `started`.
+    Following { started: CuTime, goal: [CuJointPosition; 6] },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -89,6 +109,20 @@ enum Phase {
 struct Params {
     chain: CuChainSpec<6>,
     collision_model: CuCollisionModelSpec<6>,
+    /// Peak joint speed of every move, degrees per second.
+    #[serde(default = "default_speed")]
+    speed: f64,
+    /// Joint acceleration of every move, degrees per second squared.
+    #[serde(default = "default_acceleration")]
+    acceleration: f64,
+}
+
+fn default_speed() -> f64 {
+    5.0
+}
+
+fn default_acceleration() -> f64 {
+    20.0
 }
 
 #[derive(Reflect)]
@@ -102,6 +136,10 @@ pub struct RobotProgram {
     planner: Box<CuJointRrtConnect<6>>,
     #[reflect(ignore)]
     path: Box<CuJointPlanPath<6>>,
+    #[reflect(ignore)]
+    timing: CuTimingParams<6>,
+    #[reflect(ignore)]
+    trajectory: Box<CuTrajectoryPayload<6, TRAJECTORY_POINTS>>,
     #[reflect(ignore)]
     steps: Vec<Step>,
     index: usize,
@@ -127,6 +165,21 @@ fn degrees(p: CuJointPosition) -> f64 {
     match p {
         CuJointPosition::Revolute(a) => a.get::<degree>(),
         _ => f64::NAN,
+    }
+}
+
+/// Trapezoidal timing (exact speed cap, rest at waypoints), same limits on
+/// every joint.
+fn timing(speed_dps: f64, acceleration_dps2: f64) -> CuTimingParams<6> {
+    CuTimingParams {
+        limits: CuJointTrajectoryLimits::new(
+            [CuJointVelocity::Revolute(AngularVelocity::new::<degree_per_second>(speed_dps)); 6],
+            [CuJointAcceleration::Revolute(AngularAcceleration::new::<degree_per_second_squared>(
+                acceleration_dps2,
+            )); 6],
+        ),
+        profile: CuTrajectoryProfile::Trapezoidal,
+        sample_period: Time::new::<second>(SAMPLE_S),
     }
 }
 
@@ -230,6 +283,9 @@ impl CuTask for RobotProgram {
             .ok_or_else(|| CuError::from("program: missing config"))?
             .deserialize_into()?;
         let resolution = CuJointResolution::from(Angle::new::<degree>(SEGMENT_STEP_DEG));
+        if !(params.speed > 0.0 && params.acceleration > 0.0) {
+            return Err(CuError::from("program: speed and acceleration must be positive"));
+        }
         let chain = params.chain.resolve()?;
         let model = params.collision_model.resolve()?;
         Ok(Self {
@@ -239,6 +295,8 @@ impl CuTask for RobotProgram {
                 CuJointRrtConnectParams::default(),
             )?),
             path: Box::default(),
+            timing: timing(params.speed, params.acceleration),
+            trajectory: Box::new(CuTrajectoryPayload::new()),
             validity: CuSceneValidity::new(chain, model, resolution),
             planning: Planning::Idle,
             steps: crate::program::steps(),
@@ -318,10 +376,17 @@ impl CuTask for RobotProgram {
                     }
                     return Ok(());
                 }
-                if let Step::Plan(d) = step {
-                    let goal = d.map(deg);
-                    match &mut self.planning {
-                        Planning::Idle => {
+                match &mut self.planning {
+                    Planning::Idle => {
+                        let goal = match self.solve(step, previous) {
+                            Ok(goal) => goal,
+                            Err(e) => {
+                                println!("program: step {} failed: {e}", self.index + 1);
+                                self.advance(Phase::Disable);
+                                return Ok(());
+                            }
+                        };
+                        if let Step::Plan(_) = step {
                             let request = CuJointPlanRequest {
                                 start: previous,
                                 goal,
@@ -329,68 +394,64 @@ impl CuTask for RobotProgram {
                             };
                             self.planner.begin(&request, self.index as u64)?;
                             self.planning = Planning::Searching { first_path: None };
+                        } else if !self.start_following(&[previous, goal], goal, now) {
+                            self.advance(Phase::Disable);
                         }
-                        Planning::Searching { first_path } => {
-                            let status = self.planner.step(PLAN_BUDGET)?;
-                            if status.has_path() && first_path.is_none() {
-                                *first_path = Some(now);
-                            }
-                            let settled = status.is_final()
-                                || first_path.is_some_and(|t| seconds_since(now, t) >= PLAN_SETTLE_S);
-                            if settled && status.has_path() {
-                                self.planner.write_best(&mut self.path);
-                                let waypoints: Vec<_> =
-                                    self.path.waypoints().iter().map(|w| w.positions).collect();
-                                println!(
-                                    "program: step {} planned, {} waypoints",
-                                    self.index + 1,
-                                    waypoints.len()
-                                );
-                                // Waypoint 0 is the start.
-                                self.planning = Planning::Executing { waypoints, next: 1 };
-                            } else if status.is_final() {
-                                println!("program: step {} planning failed: {status:?}", self.index + 1);
+                    }
+                    Planning::Searching { first_path } => {
+                        let status = self.planner.step(PLAN_BUDGET)?;
+                        if status.has_path() && first_path.is_none() {
+                            *first_path = Some(now);
+                        }
+                        let settled = status.is_final()
+                            || first_path.is_some_and(|t| seconds_since(now, t) >= PLAN_SETTLE_S);
+                        if settled && status.has_path() {
+                            self.planner.write_best(&mut self.path);
+                            let waypoints: Vec<_> =
+                                self.path.waypoints().iter().map(|w| w.positions).collect();
+                            println!(
+                                "program: step {} planned, {} waypoints",
+                                self.index + 1,
+                                waypoints.len()
+                            );
+                            let goal = *waypoints.last().unwrap_or(&previous);
+                            if !self.start_following(&waypoints, goal, now) {
                                 self.advance(Phase::Disable);
                             }
-                        }
-                        Planning::Executing { waypoints, next } => {
-                            let Some(&waypoint) = waypoints.get(*next) else {
-                                self.planning = Planning::Idle;
-                                self.target = Some(goal);
-                                self.next_step();
-                                return Ok(());
-                            };
-                            if reached(&measured, &waypoint) {
-                                *next += 1;
-                            } else {
-                                command_out.set_payload(CuJointCommandPayload {
-                                    mode: CuControllerMode::Position,
-                                    positions: waypoint,
-                                    ..Default::default()
-                                });
-                            }
+                        } else if status.is_final() {
+                            println!("program: step {} planning failed: {status:?}", self.index + 1);
+                            self.advance(Phase::Disable);
                         }
                     }
-                    return Ok(());
-                }
-                let goal = match self.solve(step, previous) {
-                    Ok(goal) => goal,
-                    Err(e) => {
-                        println!("program: step {} failed: {e}", self.index + 1);
-                        self.advance(Phase::Disable);
-                        return Ok(());
+                    Planning::Following { started, goal } => {
+                        let (started, goal) = (*started, *goal);
+                        let duration = self.trajectory.duration().get::<second>();
+                        let t = seconds_since(now, started);
+                        // Past the end, hold the goal at zero velocity so feedback settles it.
+                        let mut positions = goal;
+                        let mut velocities = [CuJointVelocity::default(); 6];
+                        if t < duration {
+                            self.trajectory.sample(
+                                Time::new::<second>(t),
+                                &mut positions,
+                                &mut velocities,
+                            )?;
+                        }
+                        command_out.set_payload(CuJointCommandPayload {
+                            mode: CuControllerMode::Velocity,
+                            positions,
+                            velocities,
+                            ..Default::default()
+                        });
+                        if t >= duration && reached(&measured, &goal) {
+                            self.planning = Planning::Idle;
+                            self.target = Some(goal);
+                            self.next_step();
+                        } else if t >= duration + SETTLE_S {
+                            println!("program: step {} did not settle on its goal", self.index + 1);
+                            self.advance(Phase::Disable);
+                        }
                     }
-                };
-                if reached(&measured, &goal) && seconds_since(now, step_started) > 0.2 {
-                    self.target = Some(goal);
-                    self.next_step();
-                } else {
-                    // Hold the goal every cycle; the bridge sends it once.
-                    command_out.set_payload(CuJointCommandPayload {
-                        mode: CuControllerMode::Position,
-                        positions: goal,
-                        ..Default::default()
-                    });
                 }
             }
             Phase::Disable => {
@@ -414,6 +475,25 @@ impl CuTask for RobotProgram {
 }
 
 impl RobotProgram {
+    /// Time `waypoints` into the trajectory buffer and start following it.
+    fn start_following(
+        &mut self,
+        waypoints: &[[CuJointPosition; 6]],
+        goal: [CuJointPosition; 6],
+        now: CuTime,
+    ) -> bool {
+        match parameterize(waypoints, &self.timing, CuTimingOverrides::default(), &mut self.trajectory) {
+            Ok(CuTimingStatus::Success) => {
+                self.planning = Planning::Following { started: now, goal };
+                true
+            }
+            other => {
+                println!("program: step {} timing failed: {other:?}", self.index + 1);
+                false
+            }
+        }
+    }
+
     fn next_step(&mut self) {
         println!("program: step {} of {} done", self.index + 1, self.steps.len());
         self.index += 1;
@@ -443,6 +523,8 @@ mod tests {
                 .unwrap(),
             ),
             path: Box::default(),
+            timing: timing(5.0, 20.0),
+            trajectory: Box::new(CuTrajectoryPayload::new()),
             steps: Vec::new(),
             index: 0,
             phase: Phase::Run,
@@ -498,5 +580,31 @@ mod tests {
         let mut path = CuJointPlanPath::<6>::default();
         planner.write_best(&mut path);
         assert!(path.waypoints().len() >= 2);
+    }
+
+    #[test]
+    fn test_timed_trajectory_respects_speed_and_ends_at_goal() {
+        let mut trajectory = Box::new(CuTrajectoryPayload::<6, TRAJECTORY_POINTS>::new());
+        let a = [-1.1, 45.5, 60.0, -3.3, -80.9, 28.7].map(deg);
+        let b = [0.0, 30.0, 60.0, 0.0, 60.0, 0.0].map(deg);
+        let status = parameterize(&[a, b], &timing(5.0, 20.0), CuTimingOverrides::default(), &mut trajectory)
+            .unwrap();
+        assert_eq!(status, CuTimingStatus::Success);
+        let duration = trajectory.duration().get::<second>();
+        // A5 travels 140.9 deg at <= 5 deg/s.
+        assert!(duration >= 140.9 / 5.0, "{duration}");
+        let mut p = a;
+        let mut v = [CuJointVelocity::default(); 6];
+        let mut t = 0.0;
+        while t < duration {
+            trajectory.sample(Time::new::<second>(t), &mut p, &mut v).unwrap();
+            for joint in v {
+                let CuJointVelocity::Revolute(w) = joint else { panic!() };
+                assert!(w.get::<degree_per_second>().abs() <= 5.0 + 1e-6);
+            }
+            t += 0.1;
+        }
+        trajectory.sample(trajectory.duration(), &mut p, &mut v).unwrap();
+        assert!(reached(&p, &b));
     }
 }
