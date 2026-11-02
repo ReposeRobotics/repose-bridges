@@ -1,0 +1,6 @@
+# Short commands for the hardware examples (run from the repo root).
+#   cargo move --allow-motion --set 1=40 --set 6=55 --back
+#   cargo session --enable
+[alias]
+move = "run -p repose-igus-cri --features control --example move --"
+session = "run -p repose-igus-cri --features control --example session --"
