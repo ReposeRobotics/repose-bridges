@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Add point-to-point motion: Tx `joint_command` (`CuJointCommandPayload<6>`,
+  position mode) sends controller-planned `Move Joint`, behind a third opt-in
+  `allow_motion`. The bridge applies local gates (in control, motion allowed,
+  joint limits, `max_step`), keeps one move in flight, treats a repeated
+  target as a no-op, and reports reached/rejected/aborted on the vendor Rx
+  `cri_motion` channel. Adds a `move` example; first motion verified on
+  hardware (A6 ±5° at 5 %).
+
 - **Breaking:** the bridge implements the vendor-neutral Repose robot contract
   (`repose-robot-interface`). `joint_state` now carries
   `repose_kinematics::CuJointStatePayload<6>` (was `CuRebelState`), with

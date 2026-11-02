@@ -170,6 +170,8 @@ This configuration is specific to the observed setup, not a universal ReBeL pres
 | Rx | `session_state` | `repose_robot_interface::CuSessionState` | standard; published on change |
 | Rx | `cri_status` | `repose_igus_cri::CuCriStatus` | vendor: joints, TCP pose, mode, error codes, KINSTATE, ESTOP, override |
 | Tx | `session` | `repose_robot_interface::CuSessionCommand` | standard; `control` feature only |
+| Tx | `joint_command` | `repose_controller::CuJointCommandPayload<6>` | standard; `control` feature + `allow_motion`; `position` mode only |
+| Rx | `cri_motion` | `repose_igus_cri::CuCriMotionState` | vendor: move status, rejection reason, last `EXEC*` frame |
 
 `joint_state.status` (`CuRobotStatus`) is `Ready` when every drive reports code
 0 and `KINSTATE` is 0, `Fault(code)` for any per-joint code other than 0, 4 (not
@@ -257,6 +259,42 @@ were acknowledged, and `CMDERROR <client counter> <text>` replies matched. CRI
 ```sh
 cargo run -p repose-igus-cri --features control --example session -- 192.168.3.11:3920 --activate
 cargo run -p repose-igus-cri --features control --example session -- 192.168.3.11:3920 --enable
+```
+
+## Motion (stage 2a: point-to-point)
+
+`joint_command` with `mode: position` sends one controller-planned
+`CMD Move Joint <A1…A6 °> 0 0 0 <velocity %>`. Three opt-ins: the `control`
+feature, `allow_control`, and `allow_motion` (which requires `allow_control`).
+`velocity` and `effort` modes return an error (streaming jog is stage 2b).
+
+A target is refused, reported on `cri_motion` and never sent, unless this
+session holds control and the controller reports `motion_allowed`, the target
+is within the ReBeL preset's joint limits, and every joint is within
+`max_step` (default 10°) of the measured pose. One move is in flight at a time:
+re-sending the same target is a no-op, so a controller task can hold its
+setpoint every cycle, and a different target while moving is counted in
+`refused`. A move is `reached` only when every measured joint is within
+`goal_tolerance` (default 0.5°). Losing control, drives, or a joint fault
+mid-move marks it `aborted`; tracking stops, and `stop` disables the drives.
+
+| Param | Default | Bounds |
+|---|---|---|
+| `allow_motion` | `false` | requires `allow_control` |
+| `velocity_percent` | `5.0` | 0 < v ≤ 25 |
+| `max_step` | 10° | > 0 |
+| `goal_tolerance` | 0.5° | > 0 |
+
+Verified on RobotControl V980-14 with `examples/move.rs`: A6 +5° and back at
+5 %, each move reached in about 1.6 s. Observed frames: `CMDACK <counter>`
+for the move, then `EXECACK 0 0 MoveTo` at start and `EXECEND -1 0 MoveTo PLAN`
+at the end. After `Disable` the controller also reported
+`EXECERROR 0 0 MoveTo Hardware er…` (truncated). That most likely means the
+finished move program saw the drives go off, but it is unconfirmed. `EXEC*`
+frames are informational only; completion is judged from measured joints.
+
+```sh
+cargo run -p repose-igus-cri --features control --example move -- 192.168.3.11:3920 --allow-motion
 ```
 
 ## Connection behavior

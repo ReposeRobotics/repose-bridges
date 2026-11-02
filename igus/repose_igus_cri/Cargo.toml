@@ -21,6 +21,7 @@ cu29.workspace = true
 bincode.workspace = true
 serde.workspace = true
 # Pinned to ReposeRobotics/repose#3 (robot interface); bump to the merge commit once it lands.
+repose-controller = { git = "https://github.com/ReposeRobotics/repose.git", rev = "b1d64c936fcd26707f072e6061deb5826475a675" }
 repose-kinematics = { git = "https://github.com/ReposeRobotics/repose.git", rev = "b1d64c936fcd26707f072e6061deb5826475a675" }
 repose-robot-interface = { git = "https://github.com/ReposeRobotics/repose.git", rev = "b1d64c936fcd26707f072e6061deb5826475a675" }
 
@@ -33,4 +34,8 @@ sha2 = "0.10"
 
 [[example]]
 name = "session"
+required-features = ["control"]
+
+[[example]]
+name = "move"
 required-features = ["control"]

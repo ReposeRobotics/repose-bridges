@@ -1,12 +1,21 @@
 //! The `CuBridge`: standard Repose channels plus the vendor `cri_status` channel.
 
 use crate::mapping;
+#[cfg(feature = "control")]
+use crate::motion::MoveContext;
 use crate::params::CuIgusCriParams;
 use crate::params::duration;
+use crate::protocol::CuCriMotionState;
 use crate::protocol::CuCriStatus;
 use crate::transport;
 use crate::transport::Shared;
 use cu29::prelude::*;
+#[cfg(feature = "control")]
+use repose_controller::CuControllerMode;
+#[cfg(feature = "control")]
+use repose_controller::CuJointCommandPayload;
+#[cfg(feature = "control")]
+use repose_kinematics::CuJointPosition;
 use repose_kinematics::CuJointStatePayload;
 #[cfg(feature = "control")]
 use repose_robot_interface::CuSessionCommand;
@@ -38,6 +47,7 @@ impl BridgeChannelSet for IgusCriTxChannels {
 tx_channels! {
     pub struct IgusCriTxChannels: IgusCriTxId {
         session => CuSessionCommand = "session",
+        joint_command => CuJointCommandPayload<6> = "joint_command",
     }
 }
 rx_channels! {
@@ -45,6 +55,7 @@ rx_channels! {
         joint_state => CuJointStatePayload<6> = "joint_state",
         session_state => CuSessionState = "session_state",
         cri_status => CuCriStatus = "cri_status",
+        cri_motion => CuCriMotionState = "cri_motion",
     }
 }
 
@@ -164,7 +175,11 @@ impl CuBridge for CuIgusCriBridge {
         stream
             .set_write_timeout(Some(Duration::from_millis(100)))
             .map_err(|e| CuError::new_with_cause("CRI write timeout setup failed", e))?;
-        self.shared = Arc::new(Mutex::new(Shared::default()));
+        self.shared = Arc::new(Mutex::new(Shared {
+            velocity_percent: self.params.velocity_percent,
+            goal_tolerance: self.params.goal_tolerance,
+            ..Shared::default()
+        }));
         self.seen_joint_state = 0;
         self.seen_cri_status = 0;
         self.shutdown.store(false, Ordering::Release);
@@ -227,6 +242,54 @@ impl CuBridge for CuIgusCriBridge {
                 shared.session.request(command);
                 Ok(())
             }
+            IgusCriTxId::JointCommand => {
+                let Some(command) = msg.downcast_ref::<CuJointCommandPayload<6>>()?.payload()
+                else {
+                    return Ok(());
+                };
+                if !self.params.allow_motion {
+                    return Err(CuError::from(
+                        "CRI motion requires allow_motion = true in the bridge config",
+                    ));
+                }
+                if command.mode != CuControllerMode::Position {
+                    return Err(CuError::from(
+                        "CRI bridge supports only position joint commands (Move Joint)",
+                    ));
+                }
+                let mut target = [cu29::units::si::f64::Angle::default(); 6];
+                for (out, position) in target.iter_mut().zip(command.positions) {
+                    let CuJointPosition::Revolute(angle) = position else {
+                        return Err(CuError::from("ReBeL joints are revolute"));
+                    };
+                    *out = angle;
+                }
+                self.running()?;
+                let mut shared = self
+                    .shared
+                    .lock()
+                    .map_err(|_| CuError::from("CRI worker state poisoned"))?;
+                if shared.failed {
+                    return Err(CuError::from(
+                        "CRI transport or protocol failed; restart bridge",
+                    ));
+                }
+                let Shared {
+                    session,
+                    motion,
+                    latest,
+                    ..
+                } = &mut *shared;
+                motion.request(
+                    target,
+                    &MoveContext {
+                        session: session.state(),
+                        measured: latest.as_ref().map(|(_, status)| status),
+                        max_step: self.params.max_step,
+                    },
+                );
+                Ok(())
+            }
         }
     }
 
@@ -268,6 +331,13 @@ impl CuBridge for CuIgusCriBridge {
                 {
                     stamp(ctx, received, output);
                     output.set_payload(status.clone());
+                }
+            }
+            IgusCriRxId::CriMotion => {
+                let output = msg.downcast_mut::<CuCriMotionState>()?;
+                if shared.motion.take_changed() {
+                    output.tov = Tov::Time(ctx.now());
+                    output.set_payload(shared.motion.state().clone());
                 }
             }
             IgusCriRxId::SessionState => {
@@ -418,6 +488,8 @@ mod tests {
     #[cfg(feature = "control")]
     mod control {
         use super::*;
+        use repose_controller::CuControllerMode;
+        use repose_controller::CuJointCommandPayload;
         use repose_robot_interface::CuSessionRejection;
         use repose_robot_interface::CuSessionResult;
         use std::io::Read;
@@ -463,6 +535,158 @@ mod tests {
                 assert!(Instant::now() < deadline);
                 std::thread::sleep(Duration::from_millis(2));
             }
+        }
+
+        fn status_frame(a6: f64) -> String {
+            format!(
+                "CRISTART 9 STATUS MODE joint POSJOINTCURRENT 0 0 0 0 0 {a6} 0 0 0 0 0 0 0 0 0 0 ERROR NoError 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 KINSTATE 0 CRIEND"
+            )
+        }
+
+        fn move_command(a6: f64, mode: CuControllerMode) -> CuMsg<CuJointCommandPayload<6>> {
+            let payload = CuJointCommandPayload::<6> {
+                mode,
+                positions: [0.0, 0.0, 0.0, 0.0, 0.0, a6].map(|d| {
+                    CuJointPosition::Revolute(cu29::units::si::f64::Angle::new::<
+                        cu29::units::si::angle::degree,
+                    >(d))
+                }),
+                ..Default::default()
+            };
+            let mut msg = CuMsg::default();
+            msg.set_payload(payload);
+            msg
+        }
+
+        fn motion(bridge: &CuIgusCriBridge) -> CuCriMotionState {
+            bridge.shared.lock().unwrap().motion.state().clone()
+        }
+
+        #[test]
+        fn test_move_joint_against_fake_controller() {
+            use crate::protocol::CuCriMotionRejection;
+            use crate::protocol::CuCriMotionStatus;
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let params = CuIgusCriParams {
+                address: listener.local_addr().unwrap().to_string(),
+                allow_control: true,
+                ..Default::default()
+            };
+            let (ctx, _) = CuContext::new_mock_clock();
+
+            // Motion refused without the third opt-in.
+            let mut locked = CuIgusCriBridge::from_params(params.clone()).unwrap();
+            locked.start(&ctx).unwrap();
+            let (_peer, _) = listener.accept().unwrap();
+            let msg = move_command(5.0, CuControllerMode::Position);
+            assert!(
+                locked
+                    .send(&ctx, &IgusCriTxChannels::JOINT_COMMAND, &msg)
+                    .is_err()
+            );
+            locked.stop(&ctx).unwrap();
+
+            let mut bridge = CuIgusCriBridge::from_params(CuIgusCriParams {
+                allow_motion: true,
+                ..params
+            })
+            .unwrap();
+            bridge.start(&ctx).unwrap();
+            let (mut peer, _) = listener.accept().unwrap();
+            peer.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+
+            // Velocity mode is stage 2b.
+            let jog = move_command(5.0, CuControllerMode::Velocity);
+            assert!(
+                bridge
+                    .send(&ctx, &IgusCriTxChannels::JOINT_COMMAND, &jog)
+                    .is_err()
+            );
+
+            // Not in control yet: refused locally.
+            writeln!(peer, "{}", status_frame(0.0)).unwrap();
+            wait(&bridge, |_| true);
+            let deadline = Instant::now() + Duration::from_secs(2);
+            while bridge.shared.lock().unwrap().latest.is_none() {
+                assert!(Instant::now() < deadline);
+                std::thread::sleep(Duration::from_millis(2));
+            }
+            bridge
+                .send(&ctx, &IgusCriTxChannels::JOINT_COMMAND, &msg)
+                .unwrap();
+            assert_eq!(
+                motion(&bridge).rejection,
+                CuCriMotionRejection::NotInControl
+            );
+
+            // Acquire control; the status frame already reports drives ready.
+            writeln!(peer, "CRISTART 1 CMD Active true CRIEND").unwrap();
+            writeln!(peer, "{}", status_frame(0.0)).unwrap();
+            wait(&bridge, |s| s.control_acquired && s.motion_allowed);
+
+            let start = move_command(5.0, CuControllerMode::Position);
+            // A different target counts as new; the earlier rejection was for this one,
+            // so nudge it to force a fresh request.
+            let start_b = move_command(5.1, CuControllerMode::Position);
+            bridge
+                .send(&ctx, &IgusCriTxChannels::JOINT_COMMAND, &start_b)
+                .unwrap();
+            let (counter, command) = next_command(&mut peer);
+            assert_eq!(command, "Move Joint 0.0 0.0 0.0 0.0 0.0 5.1 0 0 0 5");
+            // Resend: no-op. Different target in flight: refused.
+            bridge
+                .send(&ctx, &IgusCriTxChannels::JOINT_COMMAND, &start_b)
+                .unwrap();
+            bridge
+                .send(&ctx, &IgusCriTxChannels::JOINT_COMMAND, &start)
+                .unwrap();
+            assert_eq!(motion(&bridge).refused, 1);
+            writeln!(peer, "CRISTART 2 CMDACK {counter} CRIEND").unwrap();
+            writeln!(peer, "{}", status_frame(2.0)).unwrap();
+            writeln!(peer, "CRISTART 3 EXECEND 1 move CRIEND").unwrap();
+            let deadline = Instant::now() + Duration::from_secs(2);
+            while motion(&bridge).last_exec.as_str() != "EXECEND 1 move" {
+                assert!(Instant::now() < deadline);
+                std::thread::sleep(Duration::from_millis(2));
+            }
+            assert_eq!(motion(&bridge).status, CuCriMotionStatus::Moving);
+            writeln!(peer, "{}", status_frame(4.8)).unwrap();
+            let deadline = Instant::now() + Duration::from_secs(2);
+            while motion(&bridge).status != CuCriMotionStatus::Reached {
+                assert!(Instant::now() < deadline);
+                std::thread::sleep(Duration::from_millis(2));
+            }
+            let mut out = CuMsg::<CuCriMotionState>::default();
+            bridge
+                .receive(&ctx, &IgusCriRxChannels::CRI_MOTION, &mut out)
+                .unwrap();
+            assert_eq!(out.payload().unwrap().status, CuCriMotionStatus::Reached);
+
+            // Beyond max_step from the measured pose: refused, nothing sent.
+            let far = move_command(30.0, CuControllerMode::Position);
+            bridge
+                .send(&ctx, &IgusCriTxChannels::JOINT_COMMAND, &far)
+                .unwrap();
+            assert_eq!(
+                motion(&bridge).rejection,
+                CuCriMotionRejection::MaxStepExceeded
+            );
+
+            // Control lost mid-move aborts tracking.
+            let back = move_command(0.0, CuControllerMode::Position);
+            bridge
+                .send(&ctx, &IgusCriTxChannels::JOINT_COMMAND, &back)
+                .unwrap();
+            let (_, command) = next_command(&mut peer);
+            assert!(command.starts_with("Move Joint"));
+            writeln!(peer, "CRISTART 4 CMD Active false CRIEND").unwrap();
+            writeln!(peer, "{}", status_frame(4.0)).unwrap();
+            let deadline = Instant::now() + Duration::from_secs(2);
+            while motion(&bridge).status != CuCriMotionStatus::Aborted {
+                assert!(Instant::now() < deadline);
+                std::thread::sleep(Duration::from_millis(2));
+            }
+            bridge.stop(&ctx).unwrap();
         }
 
         #[test]

@@ -1,4 +1,6 @@
 use cu29::prelude::*;
+use cu29::units::si::angle::degree;
+use cu29::units::si::f64::Angle;
 use cu29::units::si::f64::Time;
 use cu29::units::si::time::second;
 use serde::Deserialize;
@@ -19,6 +21,16 @@ pub struct CuIgusCriParams {
     /// Second opt-in for the `control` feature: session commands are refused
     /// unless this is true. Ignored without the feature.
     pub allow_control: bool,
+    /// Third opt-in: motion commands are refused unless this is true.
+    /// Requires `allow_control = true`.
+    pub allow_motion: bool,
+    /// Velocity percent cap for Move Joint commands (0 < v <= 25.0).
+    pub velocity_percent: f64,
+    /// Largest allowed step between target and measured joint angle per joint.
+    pub max_step: Angle,
+    /// Goal tolerance: every joint must be within this tolerance for a move
+    /// to be considered reached.
+    pub goal_tolerance: Angle,
 }
 
 impl Default for CuIgusCriParams {
@@ -28,16 +40,40 @@ impl Default for CuIgusCriParams {
             stale_after: Time::new::<second>(0.5),
             connect_timeout: Time::new::<second>(2.0),
             allow_control: false,
+            allow_motion: false,
+            velocity_percent: 5.0,
+            max_step: Angle::new::<degree>(10.0),
+            goal_tolerance: Angle::new::<degree>(0.5),
         }
     }
 }
 
 impl CuIgusCriParams {
-    /// Reject invalid addresses and non-positive or unrepresentable durations.
+    /// Reject invalid addresses, non-positive durations, or out-of-bound motion params.
     pub fn validate(&self) -> CuResult<()> {
         self.socket_address()?;
         duration(self.stale_after)?;
         duration(self.connect_timeout)?;
+        if self.allow_motion && !self.allow_control {
+            return Err(CuError::from(
+                "CRI allow_motion requires allow_control = true",
+            ));
+        }
+        if !(self.velocity_percent > 0.0 && self.velocity_percent <= 25.0) {
+            return Err(CuError::from(
+                "CRI velocity_percent must be in 0 < v <= 25.0",
+            ));
+        }
+        let step_deg = self.max_step.get::<degree>();
+        if !step_deg.is_finite() || step_deg <= 0.0 {
+            return Err(CuError::from("CRI max_step must be finite and positive"));
+        }
+        let tol_deg = self.goal_tolerance.get::<degree>();
+        if !tol_deg.is_finite() || tol_deg <= 0.0 {
+            return Err(CuError::from(
+                "CRI goal_tolerance must be finite and positive",
+            ));
+        }
         Ok(())
     }
 
@@ -75,6 +111,43 @@ mod tests {
             },
             CuIgusCriParams {
                 address: "rebel.local:3920".into(),
+                ..Default::default()
+            },
+            CuIgusCriParams {
+                allow_motion: true,
+                allow_control: false,
+                ..Default::default()
+            },
+            CuIgusCriParams {
+                velocity_percent: 0.0,
+                ..Default::default()
+            },
+            CuIgusCriParams {
+                velocity_percent: -5.0,
+                ..Default::default()
+            },
+            CuIgusCriParams {
+                velocity_percent: 25.1,
+                ..Default::default()
+            },
+            CuIgusCriParams {
+                velocity_percent: f64::NAN,
+                ..Default::default()
+            },
+            CuIgusCriParams {
+                max_step: Angle::new::<degree>(0.0),
+                ..Default::default()
+            },
+            CuIgusCriParams {
+                max_step: Angle::new::<degree>(f64::NAN),
+                ..Default::default()
+            },
+            CuIgusCriParams {
+                goal_tolerance: Angle::new::<degree>(0.0),
+                ..Default::default()
+            },
+            CuIgusCriParams {
+                goal_tolerance: Angle::new::<degree>(-1.0),
                 ..Default::default()
             },
         ] {
