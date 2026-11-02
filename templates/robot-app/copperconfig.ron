@@ -10,7 +10,14 @@
             type: "runner::RobotProgram",
             // Kinematic and collision models: preset names or inline specs
             // (repose_kinematics::CuChainSpec, repose_collision::CuCollisionModelSpec).
-            config: {"chain": "igus_rebel", "collision_model": "igus_rebel"},
+            // speed: peak joint speed in deg/s, acceleration in deg/s^2. The
+            // bridge caps jog at max_jog_percent (default 10 % = 6 deg/s).
+            config: {
+                "chain": "igus_rebel",
+                "collision_model": "igus_rebel",
+                "speed": 5.0,
+                "acceleration": 20.0,
+            },
         ),
     ],
     bridges: [

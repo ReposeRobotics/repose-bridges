@@ -1,5 +1,7 @@
-//! Your robot program. Steps run in order; each motion step finishes when the
-//! robot reaches it. Afterwards the drives are disabled and control released.
+//! Your robot program. Steps run in order; each motion step is timed into a
+//! smooth trajectory (speed and acceleration in copperconfig.ron), streamed to
+//! the robot, and finishes when the robot settles on its goal. Afterwards the
+//! drives are disabled and control released.
 //!
 //! - `Joints([..])`     absolute joint angles, degrees (A1..A6)
 //! - `Offset([..])`     joint offsets from the previous target, degrees
