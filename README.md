@@ -1,5 +1,19 @@
 # Repose Bridges
 
+## Start a robot program
+
+```sh
+cargo install cargo-generate
+cargo generate gh:ReposeRobotics/repose-bridges templates/robot-app --name my_robot
+cd my_robot
+cargo run          # the arm MOVES: keep the e-stop in hand
+```
+
+Write your program in `src/program.rs` as a list of steps: absolute joint
+moves, joint offsets, tool moves in metres (solved with Repose IK), and waits.
+Pick the robot (bridge, address, speed) and its kinematic model in
+`copperconfig.ron`. Ctrl-C stops cleanly: drives off, control released.
+
 Copper-native hardware bridges, grouped by manufacturer. Every bridge
 implements the vendor-neutral Repose robot contract from
 `repose-robot-interface`, so applications swap robots (or the MuJoCo simulator)

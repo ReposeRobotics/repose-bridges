@@ -1,0 +1,9 @@
+[template]
+cargo_generate_version = ">=0.21"
+# Only these files contain placeholders; Rust sources are copied verbatim.
+include = ["Cargo.toml", "copperconfig.ron", "README.md"]
+
+[placeholders.robot_address]
+type = "string"
+prompt = "Robot controller address (ip:port)?"
+default = "192.168.3.11:3920"
