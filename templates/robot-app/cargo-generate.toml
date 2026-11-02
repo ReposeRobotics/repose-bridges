@@ -3,5 +3,10 @@ cargo_generate_version = ">=0.21"
 
 [placeholders.robot_address]
 type = "string"
-prompt = "Robot controller address (ip:port)?"
+prompt = "igus ReBeL controller address (ip:port)?"
 default = "192.168.3.11:3920"
+
+[placeholders.ur_address]
+type = "string"
+prompt = "UR / URSim RTDE address (ip:port)?"
+default = "127.0.0.1:30004"
