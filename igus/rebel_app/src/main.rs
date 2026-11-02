@@ -9,6 +9,11 @@ mod sequence;
 
 use cu29::prelude::*;
 use std::sync::atomic::Ordering;
+use std::time::Duration;
+use std::time::Instant;
+
+/// `run_one_iteration` does not pace itself; run the graph at 50 Hz.
+const PERIOD: Duration = Duration::from_millis(20);
 
 #[copper_runtime(config = "copperconfig.ron")]
 struct RebelApp {}
@@ -23,7 +28,9 @@ fn main() -> CuResult<()> {
         .start()
         .map_err(|fault| fault.error)?;
     while !sequence::DONE.load(Ordering::Acquire) {
+        let started = Instant::now();
         app.run_one_iteration()?;
+        std::thread::sleep(PERIOD.saturating_sub(started.elapsed()));
     }
     app.stop().map_err(|fault| fault.error)?;
     Ok(())

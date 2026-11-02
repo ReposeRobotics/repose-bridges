@@ -20,8 +20,8 @@ pub static DONE: AtomicBool = AtomicBool::new(false);
 
 /// A move counts as reached within this many degrees of the target.
 const REACHED_DEG: f64 = 0.5;
-/// Give up on a phase after this many cycles (120 s at 50 Hz).
-const PHASE_TIMEOUT: u32 = 6000;
+/// Give up on a phase after this long.
+const PHASE_TIMEOUT_S: u64 = 120;
 
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, bincode::Encode, bincode::Decode, Reflect,
@@ -52,6 +52,8 @@ pub struct RebelSequence {
     step: Angle,
     phase: Phase,
     cycles: u32,
+    #[reflect(ignore)]
+    phase_started: Option<CuTime>,
     session: CuSessionState,
     #[reflect(ignore)]
     start: Option<[CuJointPosition; 6]>,
@@ -64,6 +66,7 @@ impl RebelSequence {
         println!("sequence: {:?} -> {next:?}", self.phase);
         self.phase = next;
         self.cycles = 0;
+        self.phase_started = None;
     }
 
     /// Send `command` until the bridge reports it acknowledged; then advance.
@@ -119,6 +122,7 @@ impl CuTask for RebelSequence {
             step: params.step,
             phase: Phase::Acquire,
             cycles: 0,
+            phase_started: None,
             session: CuSessionState::default(),
             start: None,
         })
@@ -126,7 +130,7 @@ impl CuTask for RebelSequence {
 
     fn process<'i, 'o>(
         &mut self,
-        _ctx: &CuContext,
+        ctx: &CuContext,
         input: &Self::Input<'i>,
         output: &mut Self::Output<'o>,
     ) -> CuResult<()> {
@@ -139,7 +143,10 @@ impl CuTask for RebelSequence {
         }
         let measured = joints.payload().map(|j| j.positions);
         self.cycles += 1;
-        if self.cycles > PHASE_TIMEOUT && self.phase < Phase::Disable {
+        let now = ctx.now();
+        let started = *self.phase_started.get_or_insert(now);
+        let timed_out = now - started > CuDuration::from_secs(PHASE_TIMEOUT_S);
+        if timed_out && self.phase < Phase::Disable {
             println!("sequence: {:?} timed out", self.phase);
             self.advance(Phase::Disable);
         }
