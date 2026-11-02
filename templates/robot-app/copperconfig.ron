@@ -1,15 +1,16 @@
-// The program graph: the `robot_program` task (your steps in src/program.rs)
-// and one robot bridge. To use another robot, change the bridge `type` and
-// its `config`, and the task's `chain` (kinematic model for IK).
+// The program graph: the `program` task (your steps in src/program.rs) and one
+// robot bridge. To use another robot, change the bridge `type`/`config` and
+// the program's `chain` and `collision_model` (used for IK, the pre-flight
+// collision check, and the planner behind `Plan` steps).
 (
     runtime: (rate_target_hz: 50),
     tasks: [
         (
             id: "program",
             type: "runner::RobotProgram",
-            // Kinematic model used for tool (Cartesian) moves: a preset name
-            // or an inline chain, see repose_kinematics::CuChainSpec.
-            config: {"chain": "igus_rebel"},
+            // Kinematic and collision models: preset names or inline specs
+            // (repose_kinematics::CuChainSpec, repose_collision::CuCollisionModelSpec).
+            config: {"chain": "igus_rebel", "collision_model": "igus_rebel"},
         ),
     ],
     bridges: [

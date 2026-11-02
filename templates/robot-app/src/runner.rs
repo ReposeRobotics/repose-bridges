@@ -11,12 +11,19 @@ use cu29::units::si::length::meter;
 use cu_spatial_payloads::Transform3D;
 use repose_controller::CuControllerMode;
 use repose_controller::CuJointCommandPayload;
+use repose_collision::CuCollisionModelSpec;
 use repose_kinematics::CuChainSpec;
+use repose_kinematics::CuJointResolution;
+use repose_motion_planning::CuJointPlanPath;
+use repose_motion_planning::CuJointPlanRequest;
+use repose_motion_planning::CuJointPlanner;
+use repose_motion_planning::CuJointRrtConnect;
+use repose_motion_planning::CuJointRrtConnectParams;
+use repose_motion_planning::CuSceneValidity;
 use repose_kinematics::CuIkParams;
 use repose_kinematics::CuIkStatus;
 use repose_kinematics::CuJointPosition;
 use repose_kinematics::CuJointStatePayload;
-use repose_kinematics::CuKinematicChain;
 use repose_robot_interface::CuSessionCommand;
 use repose_robot_interface::CuSessionResult;
 use repose_robot_interface::CuSessionState;
@@ -31,6 +38,12 @@ pub static DONE: AtomicBool = AtomicBool::new(false);
 const REACHED_DEG: f64 = 0.5;
 /// Give up on one step (or bring-up) after this many seconds.
 const STEP_TIMEOUT_S: u64 = 120;
+/// Accept a still-improving plan after this many seconds.
+const PLAN_SETTLE_S: f64 = 0.5;
+/// Planner work units per 20 ms cycle.
+const PLAN_BUDGET: u32 = 64;
+/// Joint-space sampling step for segment collision checks, degrees.
+const SEGMENT_STEP_DEG: f64 = 2.0;
 
 /// One program step; see `program.rs`.
 #[allow(dead_code)] // programs use whichever variants they need
@@ -44,6 +57,20 @@ pub enum Step {
     Tool([f64; 3]),
     /// Hold for this many seconds.
     Wait(f64),
+    /// Absolute joint angles in degrees, reached along a collision-free path
+    /// from the planner task.
+    Plan([f64; 6]),
+}
+
+/// Progress of a `Plan` step.
+#[derive(Debug, Clone, Default)]
+enum Planning {
+    #[default]
+    Idle,
+    /// Planner running; `first_path` is when it first had a path.
+    Searching { first_path: Option<CuTime> },
+    /// Executing waypoint `next` of the path.
+    Executing { waypoints: Vec<[CuJointPosition; 6]>, next: usize },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -61,13 +88,20 @@ enum Phase {
 #[serde(deny_unknown_fields)]
 struct Params {
     chain: CuChainSpec<6>,
+    collision_model: CuCollisionModelSpec<6>,
 }
 
 #[derive(Reflect)]
 #[reflect(from_reflect = false)]
 pub struct RobotProgram {
     #[reflect(ignore)]
-    chain: CuKinematicChain<6>,
+    validity: CuSceneValidity<6, 6>,
+    #[reflect(ignore)]
+    planning: Planning,
+    #[reflect(ignore)]
+    planner: Box<CuJointRrtConnect<6>>,
+    #[reflect(ignore)]
+    path: Box<CuJointPlanPath<6>>,
     #[reflect(ignore)]
     steps: Vec<Step>,
     index: usize,
@@ -139,7 +173,7 @@ impl RobotProgram {
             Step::Offset(d) => core::array::from_fn(|i| deg(degrees(from[i]) + d[i])),
             Step::Tool(xyz) => {
                 let mut pose = Transform3D::<f64>::identity();
-                self.chain.forward_kinematics(&from, &mut pose)?;
+                self.validity.chain().forward_kinematics(&from, &mut pose)?;
                 let mut m = pose.to_matrix();
                 for (row, d) in m.iter_mut().zip(xyz) {
                     row[3] += Length::new::<meter>(d).get::<meter>();
@@ -147,15 +181,42 @@ impl RobotProgram {
                 let goal = Transform3D::from_matrix(m);
                 let mut q = from;
                 match self
-                    .chain
+                    .validity
+                    .chain()
                     .inverse_kinematics_dls(&goal, &from, &CuIkParams::default(), &mut q)?
                 {
                     CuIkStatus::Converged { .. } => q,
                     other => return Err(CuError::from(format!("IK did not converge: {other:?}"))),
                 }
             }
+            Step::Plan(d) => d.map(deg),
             Step::Wait(_) => from,
         })
+    }
+
+    /// Solve and collision-check every step from `start` before anything
+    /// moves. Direct moves check their joint-space segment (the controller
+    /// interpolates in joint space); `Plan` steps check only their goal.
+    fn preflight(&self, start: [CuJointPosition; 6]) -> Result<(), String> {
+        if !self.validity.is_configuration_free(&start) {
+            return Err("start pose is out of limits or in collision".into());
+        }
+        let mut from = start;
+        for (i, &step) in self.steps.iter().enumerate() {
+            let n = i + 1;
+            let goal = self.solve(step, from).map_err(|e| format!("step {n} ({step:?}): {e}"))?;
+            if !self.validity.is_configuration_free(&goal) {
+                return Err(format!("step {n} ({step:?}): target out of limits or in collision"));
+            }
+            let direct = !matches!(step, Step::Plan(_) | Step::Wait(_));
+            if direct && !self.validity.is_segment_free(&from, &goal) {
+                return Err(format!(
+                    "step {n} ({step:?}): straight joint move collides; use Plan([..])"
+                ));
+            }
+            from = goal;
+        }
+        Ok(())
     }
 }
 
@@ -168,8 +229,18 @@ impl CuTask for RobotProgram {
         let params: Params = cfg
             .ok_or_else(|| CuError::from("program: missing config"))?
             .deserialize_into()?;
+        let resolution = CuJointResolution::from(Angle::new::<degree>(SEGMENT_STEP_DEG));
+        let chain = params.chain.resolve()?;
+        let model = params.collision_model.resolve()?;
         Ok(Self {
-            chain: params.chain.resolve()?,
+            planner: Box::new(CuJointRrtConnect::new(
+                chain,
+                model,
+                CuJointRrtConnectParams::default(),
+            )?),
+            path: Box::default(),
+            validity: CuSceneValidity::new(chain, model, resolution),
+            planning: Planning::Idle,
             steps: crate::program::steps(),
             index: 0,
             phase: Phase::Acquire,
@@ -211,8 +282,17 @@ impl CuTask for RobotProgram {
             Phase::Enable => {
                 if self.session.motion_allowed {
                     if let Some(m) = measured {
-                        self.target = Some(m);
-                        self.advance(Phase::Run);
+                        match self.preflight(m) {
+                            Ok(()) => {
+                                println!("program: pre-flight ok ({} steps)", self.steps.len());
+                                self.target = Some(m);
+                                self.advance(Phase::Run);
+                            }
+                            Err(e) => {
+                                println!("program: pre-flight failed, nothing moved: {e}");
+                                self.advance(Phase::Disable);
+                            }
+                        }
                     }
                 } else if !self.session.drives_enabled {
                     self.session_step(CuSessionCommand::EnableDrives, Phase::Enable, session_out);
@@ -235,6 +315,61 @@ impl CuTask for RobotProgram {
                 if let Step::Wait(seconds) = step {
                     if seconds_since(now, step_started) >= seconds {
                         self.next_step();
+                    }
+                    return Ok(());
+                }
+                if let Step::Plan(d) = step {
+                    let goal = d.map(deg);
+                    match &mut self.planning {
+                        Planning::Idle => {
+                            let request = CuJointPlanRequest {
+                                start: previous,
+                                goal,
+                                ..Default::default()
+                            };
+                            self.planner.begin(&request, self.index as u64)?;
+                            self.planning = Planning::Searching { first_path: None };
+                        }
+                        Planning::Searching { first_path } => {
+                            let status = self.planner.step(PLAN_BUDGET)?;
+                            if status.has_path() && first_path.is_none() {
+                                *first_path = Some(now);
+                            }
+                            let settled = status.is_final()
+                                || first_path.is_some_and(|t| seconds_since(now, t) >= PLAN_SETTLE_S);
+                            if settled && status.has_path() {
+                                self.planner.write_best(&mut self.path);
+                                let waypoints: Vec<_> =
+                                    self.path.waypoints().iter().map(|w| w.positions).collect();
+                                println!(
+                                    "program: step {} planned, {} waypoints",
+                                    self.index + 1,
+                                    waypoints.len()
+                                );
+                                // Waypoint 0 is the start.
+                                self.planning = Planning::Executing { waypoints, next: 1 };
+                            } else if status.is_final() {
+                                println!("program: step {} planning failed: {status:?}", self.index + 1);
+                                self.advance(Phase::Disable);
+                            }
+                        }
+                        Planning::Executing { waypoints, next } => {
+                            let Some(&waypoint) = waypoints.get(*next) else {
+                                self.planning = Planning::Idle;
+                                self.target = Some(goal);
+                                self.next_step();
+                                return Ok(());
+                            };
+                            if reached(&measured, &waypoint) {
+                                *next += 1;
+                            } else {
+                                command_out.set_payload(CuJointCommandPayload {
+                                    mode: CuControllerMode::Position,
+                                    positions: waypoint,
+                                    ..Default::default()
+                                });
+                            }
+                        }
                     }
                     return Ok(());
                 }
@@ -293,7 +428,21 @@ mod tests {
     #[test]
     fn test_tool_move_solves_with_ik() {
         let program = RobotProgram {
-            chain: repose_kinematics::igus_rebel_chain(),
+            validity: CuSceneValidity::new(
+                repose_kinematics::igus_rebel_chain(),
+                repose_collision::igus_rebel_collision_model(),
+                CuJointResolution::from(Angle::new::<degree>(SEGMENT_STEP_DEG)),
+            ),
+            planning: Planning::Idle,
+            planner: Box::new(
+                CuJointRrtConnect::new(
+                    repose_kinematics::igus_rebel_chain(),
+                    repose_collision::igus_rebel_collision_model(),
+                    CuJointRrtConnectParams::default(),
+                )
+                .unwrap(),
+            ),
+            path: Box::default(),
             steps: Vec::new(),
             index: 0,
             phase: Phase::Run,
@@ -307,12 +456,47 @@ mod tests {
         let up = program.solve(Step::Tool([0.0, 0.0, 0.03]), from).unwrap();
         let mut a = Transform3D::<f64>::identity();
         let mut b = Transform3D::<f64>::identity();
-        program.chain.forward_kinematics(&from, &mut a).unwrap();
-        program.chain.forward_kinematics(&up, &mut b).unwrap();
+        program.validity.chain().forward_kinematics(&from, &mut a).unwrap();
+        program.validity.chain().forward_kinematics(&up, &mut b).unwrap();
         let (a, b) = (a.to_matrix(), b.to_matrix());
         assert!((b[2][3] - a[2][3] - 0.03).abs() < 1e-3);
         assert!((b[0][3] - a[0][3]).abs() < 1e-3 && (b[1][3] - a[1][3]).abs() < 1e-3);
+        // Pre-flight: reachable steps pass; an unreachable tool move is caught.
+        assert!(program.preflight(from).is_ok());
+        let mut stretched = program;
+        stretched.steps = vec![Step::Tool([0.0, 0.0, 0.03])];
+        let upright = [-10.0, -5.0, -5.0, -5.0, -5.0, -5.0].map(deg);
+        let err = stretched.preflight(upright).unwrap_err();
+        assert!(err.contains("step 1"), "{err}");
+        let program = stretched;
         let offset = program.solve(Step::Offset([5.0, 0.0, 0.0, 0.0, 0.0, 0.0]), from).unwrap();
         assert!((degrees(offset[0]) - 3.9).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_plan_finds_collision_free_path() {
+        let mut planner = CuJointRrtConnect::<6>::new(
+            repose_kinematics::igus_rebel_chain(),
+            repose_collision::igus_rebel_collision_model(),
+            CuJointRrtConnectParams::default(),
+        )
+        .unwrap();
+        let request = CuJointPlanRequest {
+            start: [-1.1, 45.5, 60.0, -3.3, -80.9, 28.7].map(deg),
+            goal: [0.0, 30.0, 60.0, 0.0, 60.0, 0.0].map(deg),
+            ..Default::default()
+        };
+        planner.begin(&request, 0).unwrap();
+        let mut status = planner.step(PLAN_BUDGET).unwrap();
+        for _ in 0..200 {
+            if status.has_path() {
+                break;
+            }
+            status = planner.step(PLAN_BUDGET).unwrap();
+        }
+        assert!(status.has_path(), "{status:?}");
+        let mut path = CuJointPlanPath::<6>::default();
+        planner.write_best(&mut path);
+        assert!(path.waypoints().len() >= 2);
     }
 }
