@@ -7,12 +7,27 @@
         (
             id: "sequence",
             type: "sequence::RebelSequence",
-            // Moves run in order, each relative to the start pose; then back
-            // to the start. joint: 1-6, step: radians (0.0873 rad = 5 deg).
+            // Moves run in order. Each is A1-A6 offsets in radians from the
+            // previous target (0.0873 rad = 5 deg); all joints of one move
+            // travel together, zero offsets stay still. After the last move
+            // the arm returns to the start pose.
             config: {"moves": [
-                {"joint": 6, "step": 0.0873},
-                {"joint": 1, "step": 0.0873},
-                {"joint": 6, "step": -0.0873},
+                // all joints at once, out and back
+                {"steps": [0.0873, 0.0873, 0.0873, 0.0873, 0.0873, 0.0873]},
+                {"steps": [-0.0873, -0.0873, -0.0873, -0.0873, -0.0873, -0.0873]},
+                // then each joint on its own, out and back
+                {"steps": [0.0873, 0.0, 0.0, 0.0, 0.0, 0.0]},
+                {"steps": [-0.0873, 0.0, 0.0, 0.0, 0.0, 0.0]},
+                {"steps": [0.0, 0.0873, 0.0, 0.0, 0.0, 0.0]},
+                {"steps": [0.0, -0.0873, 0.0, 0.0, 0.0, 0.0]},
+                {"steps": [0.0, 0.0, 0.0873, 0.0, 0.0, 0.0]},
+                {"steps": [0.0, 0.0, -0.0873, 0.0, 0.0, 0.0]},
+                {"steps": [0.0, 0.0, 0.0, 0.0873, 0.0, 0.0]},
+                {"steps": [0.0, 0.0, 0.0, -0.0873, 0.0, 0.0]},
+                {"steps": [0.0, 0.0, 0.0, 0.0, 0.0873, 0.0]},
+                {"steps": [0.0, 0.0, 0.0, 0.0, -0.0873, 0.0]},
+                {"steps": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0873]},
+                {"steps": [0.0, 0.0, 0.0, 0.0, 0.0, -0.0873]},
             ]},
         ),
     ],
@@ -24,7 +39,7 @@
                 "address": "192.168.3.11:3920",
                 "allow_control": true,
                 "allow_motion": true,
-                "velocity_percent": 5.0,
+                "velocity_percent": 15.0,
             },
             channels: [
                 Rx(id: "joint_state", msg: "repose_kinematics::CuJointStatePayload<6>"),

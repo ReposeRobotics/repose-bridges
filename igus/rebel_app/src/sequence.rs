@@ -1,6 +1,6 @@
 //! Acquire control, enable the drives, run the configured `moves` one after
-//! another (each relative to the start pose), return to the start, disable,
-//! release, then signal [`DONE`].
+//! another (each relative to the previous target), return to the start pose,
+//! disable, release, then signal [`DONE`].
 
 use cu29::prelude::*;
 use cu29::units::si::angle::degree;
@@ -41,12 +41,13 @@ enum Phase {
 /// Most moves one run can hold.
 const MAX_MOVES: usize = 16;
 
-/// One move: `joint` (1-6) offset by `step` (SI radians) from the start pose.
-#[derive(Debug, Clone, Copy, Default, Deserialize, Reflect)]
+/// One move: offsets for A1-A6 (SI radians) from the previous target. All
+/// joints of one move travel together in a single controller-planned motion;
+/// joints with a zero offset stay still.
+#[derive(Debug, Clone, Copy, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Move {
-    joint: usize,
-    step: Angle,
+    steps: [Angle; 6],
 }
 
 #[derive(Deserialize)]
@@ -99,14 +100,17 @@ impl RebelSequence {
         }
     }
 
-    /// Start pose plus the current move's offset (the start pose itself once
-    /// all moves are done).
+    /// Start pose plus the offsets of moves `0..=current` (the start pose
+    /// itself once all moves are done).
     fn target(&self, start: &[CuJointPosition; 6]) -> [CuJointPosition; 6] {
         let mut target = *start;
         if self.current < self.count {
-            let Move { joint, step } = self.moves[self.current];
-            if let CuJointPosition::Revolute(a) = start[joint - 1] {
-                target[joint - 1] = CuJointPosition::Revolute(a + step);
+            for m in &self.moves[..=self.current] {
+                for (joint, step) in target.iter_mut().zip(m.steps) {
+                    if let CuJointPosition::Revolute(a) = *joint {
+                        *joint = CuJointPosition::Revolute(a + step);
+                    }
+                }
             }
         }
         target
@@ -134,8 +138,12 @@ impl CuTask for RebelSequence {
         if params.moves.is_empty() || params.moves.len() > MAX_MOVES {
             return Err(CuError::from("sequence: need 1-16 moves"));
         }
-        if params.moves.iter().any(|m| !(1..=6).contains(&m.joint)) {
-            return Err(CuError::from("sequence: joint must be 1-6"));
+        if params
+            .moves
+            .iter()
+            .any(|m| m.steps.iter().any(|s| !s.value.is_finite()))
+        {
+            return Err(CuError::from("sequence: steps must be finite radians"));
         }
         let mut moves = [Move::default(); MAX_MOVES];
         moves[..params.moves.len()].copy_from_slice(&params.moves);

@@ -122,7 +122,7 @@ feature, `allow_control`, and `allow_motion` (which requires `allow_control`).
 A target is refused, reported on `cri_motion` and never sent, unless this
 session holds control and the controller reports `motion_allowed`, the target
 is within the ReBeL preset's joint limits, and every joint is within
-`max_step` (default 10°) of the measured pose. One move is in flight at a time:
+`max_step` of the measured pose, if one is set (off by default). One move is in flight at a time:
 re-sending the same target is a no-op, so a controller task can hold its
 setpoint every cycle, and a different target while moving is counted in
 `refused`. A move is `reached` only when every measured joint is within
@@ -133,7 +133,7 @@ mid-move marks it `aborted`; tracking stops, and `stop` disables the drives.
 |---|---|---|
 | `allow_motion` | `false` | requires `allow_control` |
 | `velocity_percent` | `5.0` | 0 < v ≤ 25 |
-| `max_step` | 10° | > 0 |
+| `max_step` | none | > 0 when set |
 | `goal_tolerance` | 0.5° | > 0 |
 
 Verified on RobotControl V980-14 with `examples/move.rs`: A6 +5° and back at

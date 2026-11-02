@@ -588,6 +588,9 @@ mod tests {
 
             let mut bridge = CuIgusCriBridge::from_params(CuIgusCriParams {
                 allow_motion: true,
+                max_step: Some(cu29::units::si::f64::Angle::new::<
+                    cu29::units::si::angle::degree,
+                >(10.0)),
                 ..params
             })
             .unwrap();

@@ -26,8 +26,9 @@ pub struct CuIgusCriParams {
     pub allow_motion: bool,
     /// Velocity percent cap for Move Joint commands (0 < v <= 25.0).
     pub velocity_percent: f64,
-    /// Largest allowed step between target and measured joint angle per joint.
-    pub max_step: Angle,
+    /// Optional largest step between target and measured angle per joint.
+    /// `None` (default): no step limit; the ReBeL joint limits still apply.
+    pub max_step: Option<Angle>,
     /// Goal tolerance: every joint must be within this tolerance for a move
     /// to be considered reached.
     pub goal_tolerance: Angle,
@@ -42,7 +43,7 @@ impl Default for CuIgusCriParams {
             allow_control: false,
             allow_motion: false,
             velocity_percent: 5.0,
-            max_step: Angle::new::<degree>(10.0),
+            max_step: None,
             goal_tolerance: Angle::new::<degree>(0.5),
         }
     }
@@ -64,9 +65,11 @@ impl CuIgusCriParams {
                 "CRI velocity_percent must be in 0 < v <= 25.0",
             ));
         }
-        let step_deg = self.max_step.get::<degree>();
-        if !step_deg.is_finite() || step_deg <= 0.0 {
-            return Err(CuError::from("CRI max_step must be finite and positive"));
+        if let Some(step) = self.max_step {
+            let step_deg = step.get::<degree>();
+            if !step_deg.is_finite() || step_deg <= 0.0 {
+                return Err(CuError::from("CRI max_step must be finite and positive"));
+            }
         }
         let tol_deg = self.goal_tolerance.get::<degree>();
         if !tol_deg.is_finite() || tol_deg <= 0.0 {
@@ -135,11 +138,11 @@ mod tests {
                 ..Default::default()
             },
             CuIgusCriParams {
-                max_step: Angle::new::<degree>(0.0),
+                max_step: Some(Angle::new::<degree>(0.0)),
                 ..Default::default()
             },
             CuIgusCriParams {
-                max_step: Angle::new::<degree>(f64::NAN),
+                max_step: Some(Angle::new::<degree>(f64::NAN)),
                 ..Default::default()
             },
             CuIgusCriParams {

@@ -210,7 +210,7 @@ fn main() -> CuResult<()> {
         allow_control: true,
         allow_motion: true,
         velocity_percent: 5.0,
-        max_step: Angle::new::<degree>(max_step),
+        max_step: (max_step < FULL_RANGE_DEG).then(|| Angle::new::<degree>(max_step)),
         ..Default::default()
     };
     let plan = if sets.is_empty() {

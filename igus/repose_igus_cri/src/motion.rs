@@ -23,7 +23,7 @@ const SAME_TARGET: f64 = 1e-6;
 pub(crate) struct MoveContext<'a> {
     pub session: &'a CuSessionState,
     pub measured: Option<&'a CuCriStatus>,
-    pub max_step: Angle,
+    pub max_step: Option<Angle>,
 }
 
 #[derive(Default, Debug, Clone)]
@@ -75,10 +75,11 @@ impl MotionTracker {
         } else if !igus_rebel_chain().is_within_limits(&target.map(CuJointPosition::Revolute)) {
             Some(CuCriMotionRejection::JointLimits)
         } else {
-            match ctx.measured {
-                None => Some(CuCriMotionRejection::MotionNotAllowed),
-                Some(measured) => {
-                    let limit = ctx.max_step.get::<degree>();
+            match (ctx.measured, ctx.max_step) {
+                (None, _) => Some(CuCriMotionRejection::MotionNotAllowed),
+                (Some(_), None) => None,
+                (Some(measured), Some(limit)) => {
+                    let limit = limit.get::<degree>();
                     let too_far = measured
                         .joints
                         .iter()
@@ -215,7 +216,7 @@ mod tests {
         MoveContext {
             session,
             measured: Some(status),
-            max_step: Angle::new::<degree>(10.0),
+            max_step: Some(Angle::new::<degree>(10.0)),
         }
     }
 
