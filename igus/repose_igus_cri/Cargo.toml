@@ -21,9 +21,9 @@ cu29.workspace = true
 bincode.workspace = true
 serde.workspace = true
 # Pinned to the Repose commit that added repose-robot-interface (#3).
-repose-controller = { git = "https://github.com/ReposeRobotics/repose.git", rev = "d72392230e6eb2c6ff8eae18b063fe9ac31a69f9" }
-repose-kinematics = { git = "https://github.com/ReposeRobotics/repose.git", rev = "d72392230e6eb2c6ff8eae18b063fe9ac31a69f9" }
-repose-robot-interface = { git = "https://github.com/ReposeRobotics/repose.git", rev = "d72392230e6eb2c6ff8eae18b063fe9ac31a69f9" }
+repose-controller = { git = "https://github.com/ReposeRobotics/repose.git", tag = "v0.7.1" }
+repose-kinematics = { git = "https://github.com/ReposeRobotics/repose.git", tag = "v0.7.1" }
+repose-robot-interface = { git = "https://github.com/ReposeRobotics/repose.git", tag = "v0.7.1" }
 
 [[example]]
 name = "session"
