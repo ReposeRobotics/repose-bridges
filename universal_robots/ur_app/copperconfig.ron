@@ -1,0 +1,53 @@
+// UR5e nominal model from Universal Robots ROS2 Description.
+// Approximate collision capsules: simulator example, not hardware validation.
+// The program graph: the `program` task (your steps in src/program.rs) and one
+// robot bridge. To use another robot, change the bridge `type`/`config` and
+// the program's `chain` and `collision_model` (used for IK, the pre-flight
+// collision check, and the planner behind `Plan` steps).
+(
+    runtime: (rate_target_hz: 50),
+    tasks: [
+        (
+            id: "program",
+            type: "runner::RobotProgram",
+            // Kinematic and collision models: preset names or inline specs
+            // (repose_kinematics::CuChainSpec, repose_collision::CuCollisionModelSpec).
+            // speed: peak joint speed in deg/s, acceleration in deg/s^2. The
+            // bridge caps jog at max_jog_percent (default 10 % = 6 deg/s).
+            config: {
+                "chain": {"joints": [{"joint_type": "revolute", "origin_translation": [0, 0, 0.1625], "origin_rpy": [0, 0, 0], "axis": "pos_z", "limits": {"revolute": {"lower": -6.283185307179586, "upper": 6.283185307179586, "max_velocity": 3.14}}}, {"joint_type": "revolute", "origin_translation": [0, 0, 0], "origin_rpy": [1.5707963267948966, 0, 0], "axis": "pos_z", "limits": {"revolute": {"lower": -6.283185307179586, "upper": 6.283185307179586, "max_velocity": 3.14}}}, {"joint_type": "revolute", "origin_translation": [-0.425, 0, 0], "origin_rpy": [0, 0, 0], "axis": "pos_z", "limits": {"revolute": {"lower": -6.283185307179586, "upper": 6.283185307179586, "max_velocity": 3.14}}}, {"joint_type": "revolute", "origin_translation": [-0.3922, 0, 0.1333], "origin_rpy": [0, 0, 0], "axis": "pos_z", "limits": {"revolute": {"lower": -6.283185307179586, "upper": 6.283185307179586, "max_velocity": 3.14}}}, {"joint_type": "revolute", "origin_translation": [0, -0.0997, 0], "origin_rpy": [1.5707963267948966, 0, 0], "axis": "pos_z", "limits": {"revolute": {"lower": -6.283185307179586, "upper": 6.283185307179586, "max_velocity": 3.14}}}, {"joint_type": "revolute", "origin_translation": [0, 0.0996, 0], "origin_rpy": [1.5707963267948966, 3.141592653589793, 3.141592653589793], "axis": "pos_z", "limits": {"revolute": {"lower": -6.283185307179586, "upper": 6.283185307179586, "max_velocity": 3.14}}}]},
+                "collision_model": {"shapes": [{"shape": {"capsule": {"a": [0, 0, -0.1], "b": [0, 0, 0.02], "radius": 0.06}}, "frame": 0}, {"shape": {"capsule": {"a": [-0.04, 0, 0], "b": [-0.38, 0, 0], "radius": 0.055}}, "frame": 1}, {"shape": {"capsule": {"a": [-0.04, 0, 0.02], "b": [-0.35, 0, 0.02], "radius": 0.05}}, "frame": 2}, {"shape": {"capsule": {"a": [0, 0, -0.04], "b": [0, -0.06, 0], "radius": 0.04}}, "frame": 3}, {"shape": {"capsule": {"a": [0, 0, -0.02], "b": [0, 0.06, 0], "radius": 0.04}}, "frame": 4}, {"shape": {"capsule": {"a": [0, 0, 0], "b": [0, 0, 0.02], "radius": 0.035}}, "frame": 5}], "safety_margin": 0.005, "skip_adjacent_links": true},
+                // Planner for Plan steps: rrt_connect (default), rrt_star,
+                // prm, a_star, stomp, path_optimizer, direct.
+                "planner": "rrt_connect",
+                "speed": 5.0,
+                "acceleration": 20.0,
+            },
+        ),
+    ],
+    bridges: [
+        (
+            id: "robot",
+            type: "repose_ur::CuUrBridge",
+            config: {
+                "address": "127.0.0.1:30004",
+                "allow_control": true,
+                "allow_motion": true,
+                "speed": 0.15,
+                "dashboard_port": 29999,
+            },
+            channels: [
+                Rx(id: "joint_state", msg: "repose_kinematics::CuJointStatePayload<6>"),
+                Rx(id: "session_state", msg: "repose_robot_interface::CuSessionState"),
+                Tx(id: "session", msg: "repose_robot_interface::CuSessionCommand"),
+                Tx(id: "joint_command", msg: "repose_controller::CuJointCommandPayload<6>"),
+            ],
+        ),
+    ],
+    cnx: [
+        (src: "robot/joint_state", dst: "program", msg: "repose_kinematics::CuJointStatePayload<6>"),
+        (src: "robot/session_state", dst: "program", msg: "repose_robot_interface::CuSessionState"),
+        (src: "program", dst: "robot/session", msg: "repose_robot_interface::CuSessionCommand"),
+        (src: "program", dst: "robot/joint_command", msg: "repose_controller::CuJointCommandPayload<6>"),
+    ],
+)

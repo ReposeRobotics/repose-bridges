@@ -19,10 +19,10 @@ self-collision; the program refuses to start if one fails.
 Pick the robot (bridge, address, speed) and its kinematic model in
 `copperconfig.ron`. Ctrl-C stops cleanly: drives off, control released.
 
-Copper-native hardware bridges, grouped by manufacturer. Every bridge
-implements the vendor-neutral Repose robot contract from
-`repose-robot-interface`, so applications swap robots (or the MuJoCo simulator)
-by changing one bridge entry in their RON config:
+Copper-native hardware bridges, grouped by manufacturer. Bridges use the
+vendor-neutral Repose robot contract from `repose-robot-interface`, with the
+following standard channels. Check each bridge's supported command modes before
+swapping it into an application:
 
 | Dir | Channel | Payload | Required |
 |---|---|---|---|
@@ -37,6 +37,7 @@ keep the module split `params` / `protocol` (pure, no I/O) / `mapping` /
 
 | Manufacturer | Crate | Device | Interface |
 |---|---|---|---|
+| Universal Robots | [repose-ur](universal_robots/repose_ur) | e-Series / URSim | RTDE feedback, opt-in URScript joint moves (unverified on hardware) |
 | igus | [repose-igus-cri](igus/repose_igus_cri) | ReBeL, six axes | CRI TCP: joint state, session control (no motion yet) |
 
 Requires Rust 1.95 or newer and Copper 1.3.1. Host transports use `std`.
