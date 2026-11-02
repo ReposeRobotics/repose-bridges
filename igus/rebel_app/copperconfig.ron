@@ -7,8 +7,13 @@
         (
             id: "sequence",
             type: "sequence::RebelSequence",
-            // Joint 1-6 and the step in radians (0.0873 rad = 5 degrees).
-            config: {"joint": 6, "step": 0.0873},
+            // Moves run in order, each relative to the start pose; then back
+            // to the start. joint: 1-6, step: radians (0.0873 rad = 5 deg).
+            config: {"moves": [
+                {"joint": 6, "step": 0.0873},
+                {"joint": 1, "step": 0.0873},
+                {"joint": 6, "step": -0.0873},
+            ]},
         ),
     ],
     bridges: [

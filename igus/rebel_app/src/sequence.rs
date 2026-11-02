@@ -1,5 +1,6 @@
-//! Acquire control, enable the drives, move one joint by `step` and back,
-//! disable, release, then signal [`DONE`].
+//! Acquire control, enable the drives, run the configured `moves` one after
+//! another (each relative to the start pose), return to the start, disable,
+//! release, then signal [`DONE`].
 
 use cu29::prelude::*;
 use cu29::units::si::angle::degree;
@@ -37,19 +38,30 @@ enum Phase {
     Finished,
 }
 
+/// Most moves one run can hold.
+const MAX_MOVES: usize = 16;
+
+/// One move: `joint` (1-6) offset by `step` (SI radians) from the start pose.
+#[derive(Debug, Clone, Copy, Default, Deserialize, Reflect)]
+#[serde(deny_unknown_fields)]
+struct Move {
+    joint: usize,
+    step: Angle,
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Params {
-    /// Joint to move, 1-6.
-    joint: usize,
-    /// Step, SI radians.
-    step: Angle,
+    moves: Vec<Move>,
 }
 
 #[derive(Reflect)]
 pub struct RebelSequence {
-    joint: usize,
-    step: Angle,
+    #[reflect(ignore)]
+    moves: [Move; MAX_MOVES],
+    count: usize,
+    /// Index into `moves`; `count` means "back at the start pose".
+    current: usize,
     phase: Phase,
     cycles: u32,
     #[reflect(ignore)]
@@ -87,10 +99,15 @@ impl RebelSequence {
         }
     }
 
-    fn target(&self, start: &[CuJointPosition; 6], out: bool) -> [CuJointPosition; 6] {
+    /// Start pose plus the current move's offset (the start pose itself once
+    /// all moves are done).
+    fn target(&self, start: &[CuJointPosition; 6]) -> [CuJointPosition; 6] {
         let mut target = *start;
-        if out && let CuJointPosition::Revolute(a) = start[self.joint - 1] {
-            target[self.joint - 1] = CuJointPosition::Revolute(a + self.step);
+        if self.current < self.count {
+            let Move { joint, step } = self.moves[self.current];
+            if let CuJointPosition::Revolute(a) = start[joint - 1] {
+                target[joint - 1] = CuJointPosition::Revolute(a + step);
+            }
         }
         target
     }
@@ -114,12 +131,18 @@ impl CuTask for RebelSequence {
         let params: Params = cfg
             .ok_or_else(|| CuError::from("sequence: missing config"))?
             .deserialize_into()?;
-        if !(1..=6).contains(&params.joint) {
+        if params.moves.is_empty() || params.moves.len() > MAX_MOVES {
+            return Err(CuError::from("sequence: need 1-16 moves"));
+        }
+        if params.moves.iter().any(|m| !(1..=6).contains(&m.joint)) {
             return Err(CuError::from("sequence: joint must be 1-6"));
         }
+        let mut moves = [Move::default(); MAX_MOVES];
+        moves[..params.moves.len()].copy_from_slice(&params.moves);
         Ok(Self {
-            joint: params.joint,
-            step: params.step,
+            moves,
+            count: params.moves.len(),
+            current: 0,
             phase: Phase::Acquire,
             cycles: 0,
             phase_started: None,
@@ -173,14 +196,18 @@ impl CuTask for RebelSequence {
                 let (Some(start), Some(measured)) = (self.start, measured) else {
                     return Ok(());
                 };
-                let target = self.target(&start, self.phase == Phase::MoveOut);
+                let target = self.target(&start);
                 if reached(&measured, &target) && self.cycles > 5 {
-                    let next = if self.phase == Phase::MoveOut {
-                        Phase::MoveBack
+                    self.current += 1;
+                    if self.current < self.count {
+                        println!("sequence: move {} of {}", self.current + 1, self.count);
+                        self.cycles = 0;
+                        self.phase_started = None;
+                    } else if self.current == self.count {
+                        self.advance(Phase::MoveBack);
                     } else {
-                        Phase::Disable
-                    };
-                    self.advance(next);
+                        self.advance(Phase::Disable);
+                    }
                 } else {
                     // Hold the target every cycle; the bridge sends it once.
                     command_out.set_payload(CuJointCommandPayload {
