@@ -132,7 +132,7 @@ impl Run {
         let mut msg = CuMsg::<CuJointCommandPayload<6>>::default();
         msg.set_payload(payload);
         let started = Instant::now();
-        let end = started + Duration::from_secs(30);
+        let end = started + Duration::from_secs(120);
         while Instant::now() < end {
             self.bridge
                 .send(&self.ctx, &IgusCriTxChannels::JOINT_COMMAND, &msg)?;
@@ -150,7 +150,7 @@ impl Run {
             }
             std::thread::sleep(Duration::from_millis(10));
         }
-        println!("Stopping: move not reached within 30 s");
+        println!("Stopping: move not reached within 120 s");
         Ok(false)
     }
 }
