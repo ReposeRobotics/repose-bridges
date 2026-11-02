@@ -1,5 +1,5 @@
 [workspace]
-members = ["igus/repose_igus_cri", "igus/rebel_app"]
+members = ["igus/repose_igus_cri", "igus/rebel_app", "universal_robots/repose_ur", "universal_robots/ur_app"]
 resolver = "3"
 
 [workspace.package]

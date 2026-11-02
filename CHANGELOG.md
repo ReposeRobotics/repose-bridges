@@ -6,6 +6,16 @@
   Repose v0.7.1 instead of the template's own `planner.rs`, and pin all Repose
   dependencies (template, `repose-igus-cri`, `rebel_app`) to the `v0.7.1` tag.
   The `planner` key in copperconfig.ron is unchanged.
+- Add `repose-ur` under `universal_robots/`: RTDE v2 joint feedback for URSim
+  and Universal Robots, plus opt-in controller-planned URScript `movej`
+  commands. Includes bounded worker transport, stale feedback and command
+  gates, monitor/move examples, and a pinned URSim Docker Compose setup.
+  Verified RTDE feedback and ±0.05 rad wrist moves on URSim 5.25.1 (UR5e).
+  Add the standard Repose session channels and streamed velocity control with
+  position feedback, command expiry, and a resident robot-side RTDE watchdog.
+  `ur-app` uses the exact same Step API, runner and planners as the igus template;
+  only robot configuration and program targets differ. Physical hardware remains
+  unverified.
 
 - Add streaming velocity control: `joint_command` in `velocity` mode streams
   CRI jog every 50 ms (feed-forward plus position feedback, speed cap, limit

@@ -1,0 +1,28 @@
+[package]
+name = "repose-ur"
+description = "Copper bridge for Universal Robots and URSim over RTDE and URScript"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[features]
+control = []
+
+[dependencies]
+cu29.workspace = true
+bincode.workspace = true
+serde.workspace = true
+# Match the shared robot-app runner and existing igus bridge.
+repose-controller = { git = "https://github.com/ReposeRobotics/repose.git", tag = "v0.7.1" }
+repose-kinematics = { git = "https://github.com/ReposeRobotics/repose.git", tag = "v0.7.1" }
+
+repose-robot-interface = { git = "https://github.com/ReposeRobotics/repose.git", tag = "v0.7.1" }
+
+[[example]]
+name = "ur_monitor"
+
+[[example]]
+name = "ur_move"
+required-features = ["control"]
