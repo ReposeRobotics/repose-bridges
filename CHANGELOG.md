@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Template: `cargo generate` now asks for the robot (`igus_rebel` or `ur5e`)
+  and only that robot's address. The project depends only on that robot's
+  bridge crate, and its profile becomes `copperconfig.ron` directly; `robot.ron`
+  and the profile-selecting build script are gone. Switching robots now means
+  generating a new project.
+
 - Per-joint PID gains for streamed velocity commands on `repose-igus-cri` and
   `repose-ur`: `joint_gains` in RON takes six `{kp, ki, kd, integral_limit}`
   entries (shared `repose-joint-pid` crate). **Breaking:** replaces the scalar

@@ -1,12 +1,22 @@
 [template]
 cargo_generate_version = ">=0.21"
 
-[placeholders.robot_address]
+[placeholders.robot]
+type = "string"
+prompt = "Which robot?"
+choices = ["igus_rebel", "ur5e"]
+default = "igus_rebel"
+
+[conditional.'robot == "igus_rebel"'.placeholders.robot_address]
 type = "string"
 prompt = "igus ReBeL controller address (ip:port)?"
 default = "192.168.3.11:3920"
 
-[placeholders.ur_address]
+[conditional.'robot == "ur5e"'.placeholders.robot_address]
 type = "string"
 prompt = "UR / URSim RTDE address (ip:port)?"
 default = "127.0.0.1:30004"
+
+[hooks]
+# Moves robots/<robot>.ron to copperconfig.ron and drops the other profile.
+post = ["select_robot.rhai"]

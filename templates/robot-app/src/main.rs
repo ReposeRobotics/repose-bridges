@@ -1,4 +1,4 @@
-//! Robot program: select the robot in `robot.ron`; your steps are in
+//! Robot program: the robot was chosen at `cargo generate`; your steps are in
 //! `src/program.rs`. Runs until the program finishes or Ctrl-C, then stops
 //! the app so the bridge disables the drives and releases control.
 //!
