@@ -58,7 +58,11 @@ config: {
     "dashboard_port": 29999,
     "allow_control": false,
     "command_timeout": 0.1,
-    "position_gain": 2.0,
+    // One entry per joint, base first; omitted fields keep defaults.
+    "joint_gains": [
+        {"kp": 2.0, "ki": 0.0, "kd": 0.0, "integral_limit": 0.5},
+        {}, {}, {}, {}, {},
+    ],
     "frequency": 50.0,
     "connect_timeout": 2.0,
     "stale_after": 0.5,
@@ -118,7 +122,13 @@ The resident program consumes run flag input int 24 and velocities input doubles
 worker sends one RTDE input packet at most every 20 ms; an expired application
 command becomes zero velocity after `command_timeout`. Targets must be finite
 revolute coordinates within `max_step` of measured positions. Feed-forward plus
-`position_gain` times position error is clamped to configured joint `speed`.
+per-joint PID feedback on position error (radians) is clamped to configured
+joint `speed`. `joint_gains` takes six entries: `kp` (1/s), `ki` (1/s²) and
+`kd` (dimensionless), all finite and >= 0, plus `integral_limit` (0–1), which
+caps the integral term at that fraction of `speed`. The derivative uses the
+error change between consecutive commands. The PID restarts, proportional
+only, on the first command and after a gap longer than `command_timeout`.
+Only the P = 2.0 default has been exercised on URSim.
 No network I/O happens in Copper send/receive. The robot-side RTDE watchdog stops
 the program when input packets fall below 8 Hz, including a killed host process.
 See [UR's watchdog reference](https://www.universal-robots.com/manuals/EN/HTML/SW10_12_1/Content/prod-scriptmanual/all_scripts/rtde_set_watchdog_variable_name.htm).

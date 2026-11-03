@@ -6,6 +6,7 @@ use cu29::units::si::{
     f64::{Angle, AngularAcceleration, AngularVelocity, Time},
     time::second,
 };
+use repose_joint_pid::{CuJointGains, validate_gains};
 use serde::{Deserialize, Serialize};
 use std::{net::SocketAddr, time::Duration};
 
@@ -18,7 +19,8 @@ pub struct CuUrParams {
     pub dashboard_port: u16,
     pub allow_control: bool,
     pub command_timeout: Time,
-    pub position_gain: f64,
+    /// Per-joint PID position feedback for streamed velocity commands.
+    pub joint_gains: [CuJointGains; 6],
     pub frequency: f64,
     pub connect_timeout: Time,
     pub stale_after: Time,
@@ -38,7 +40,7 @@ impl Default for CuUrParams {
             dashboard_port: 29999,
             allow_control: false,
             command_timeout: Time::new::<second>(0.1),
-            position_gain: 2.0,
+            joint_gains: [CuJointGains::default(); 6],
             frequency: 50.0,
             connect_timeout: Time::new::<second>(2.0),
             stale_after: Time::new::<second>(0.5),
@@ -58,9 +60,10 @@ impl CuUrParams {
         if self.allow_motion && !self.allow_control {
             return Err(CuError::from("UR allow_motion requires allow_control"));
         }
-        if self.dashboard_port == 0 || !self.position_gain.is_finite() || self.position_gain < 0.0 {
-            return Err(CuError::from("UR invalid dashboard port or position gain"));
+        if self.dashboard_port == 0 {
+            return Err(CuError::from("UR dashboard_port must be nonzero"));
         }
+        validate_gains(&self.joint_gains)?;
         if self.allow_control && self.frequency < 25.0 {
             return Err(CuError::from("UR control requires at least 25 Hz feedback"));
         }
@@ -139,5 +142,27 @@ mod tests {
             .validate()
             .is_err()
         );
+        let mut params = CuUrParams::default();
+        params.joint_gains[3].ki = -1.0;
+        assert!(params.validate().is_err());
+    }
+
+    #[test]
+    fn joint_gains_from_ron() {
+        let ron = r#"(tasks: [], cnx: [], bridges: [(id: "robot", type: "repose_ur::CuUrBridge",
+            config: {"joint_gains": [{"kp": 3.0, "ki": 0.5}, {}, {}, {}, {}, {"kd": 0.1}]},
+            channels: [])])"#;
+        let config = cu29::config::read_configuration_str(ron.into(), None).unwrap();
+        let params: CuUrParams = config.bridges[0]
+            .config
+            .as_ref()
+            .unwrap()
+            .deserialize_into()
+            .unwrap();
+        assert_eq!(params.joint_gains[0].kp, 3.0);
+        assert_eq!(params.joint_gains[0].ki, 0.5);
+        assert_eq!(params.joint_gains[1], CuJointGains::default());
+        assert_eq!(params.joint_gains[5].kd, 0.1);
+        assert!(params.validate().is_ok());
     }
 }

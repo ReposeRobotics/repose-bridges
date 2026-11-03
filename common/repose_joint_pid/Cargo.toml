@@ -1,0 +1,12 @@
+[package]
+name = "repose-joint-pid"
+description = "Per-joint PID position feedback shared by Repose velocity-streaming bridges"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+cu29.workspace = true
+serde.workspace = true

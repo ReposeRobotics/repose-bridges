@@ -20,6 +20,7 @@ control = []
 cu29.workspace = true
 bincode.workspace = true
 serde.workspace = true
+repose-joint-pid.workspace = true
 # Pinned to the Repose commit that added repose-robot-interface (#3).
 repose-controller = { git = "https://github.com/ReposeRobotics/repose.git", tag = "v0.7.1" }
 repose-kinematics = { git = "https://github.com/ReposeRobotics/repose.git", tag = "v0.7.1" }
