@@ -1,26 +1,19 @@
 # {{project-name}}
 
-One program, two robot configurations. Keep your steps in `src/program.rs`:
-`Joints`, `Offset`, `Tool`, `Plan` and `Wait` use the same API on either robot.
+Your steps are in `src/program.rs`: `Joints`, `Offset`, `Tool`, `Plan` and
+`Wait` use the same API on the igus ReBeL and the UR5e.
 
-Choose the robot in `robot.ron`:
-
-```ron
-(robot: igus_rebel) // or: (robot: ur5e)
-```
-
-Then run `cargo run`. The build selects `robots/igus_rebel.ron` or
-`robots/ur5e.ron` and generates `copperconfig.ron` for Copper. Change `robot.ron`
-and run again to switch; no Cargo features or program changes are needed.
-Edit each robot's profile for its address, planner, speed, per-joint PID
-gains (`joint_gains`) and model parameters.
-`copperconfig.ron` is generated and ignored by Git; edit the source profiles.
+`cargo generate` asked which robot to use, so this project depends only on
+that robot's bridge. Its whole Copper graph is in `copperconfig.ron`: the
+bridge address, planner, `speed`, per-joint PID gains (`joint_gains`) and the
+kinematic and collision models. Edit it there, then `cargo run`. To switch
+robots, generate a new project and copy `src/program.rs` across.
 
 The default program offsets all joints by 5° and back, then waits. Absolute
-targets and tool moves must suit the selected robot and its starting pose.
+targets and tool moves must suit the robot and its starting pose.
 
 `Plan` uses `repose::planners::CuAnyPlanner` and `CuPlannerChoice` from Repose
-v0.7.1. Set `"planner"` in the selected robot profile to `rrt_connect` (default),
+v0.7.1. Set `"planner"` in `copperconfig.ron` to `rrt_connect` (default),
 `rrt_star`, `prm`, `a_star`, `stomp`, `path_optimizer` or `direct`. The same runner
 performs preflight checks and streams timed trajectories for both robots.
 
@@ -33,5 +26,5 @@ approximate collision capsules for simulation. Real hardware needs matching
 robot calibration, tool and collision geometry; other UR models need their own
 model configuration.
 
-Both configurations request control and motion. Running the program moves the
-selected robot. Ctrl-C stops the app and winds down the bridge's session.
+Both robot configurations request control and motion. Running the program
+moves the robot. Ctrl-C stops the app and winds down the bridge's session.

@@ -1,5 +1,0 @@
-// Select igus_rebel or ur5e (URSim and UR5e use the same bridge).
-// Connection, planner and model parameters live in robots/<robot>.ron.
-(
-    robot: igus_rebel,
-)

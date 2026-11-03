@@ -1,6 +1,6 @@
 // UR5e nominal model from Universal Robots ROS2 Description.
 // Approximate collision capsules: simulator example, not hardware validation.
-// Selected by robot.ron. The same src/program.rs runs on both robots.
+// The same src/program.rs runs on the igus ReBeL template too.
 (
     runtime: (rate_target_hz: 50),
     tasks: [
@@ -269,7 +269,7 @@
             id: "robot",
             type: "repose_ur::CuUrBridge",
             config: {
-                "address": "{{ur_address}}",
+                "address": "{{robot_address}}",
                 "allow_control": true,
                 "allow_motion": true,
                 "speed": 0.15,
