@@ -1,0 +1,31 @@
+MODULE ReposeEgm
+    ! Sample RAPID task for repose-abb (OmniCore, RobotWare 7, EGM option).
+    ! UNVERIFIED on a controller or RobotStudio: review before running.
+    ! Requires a UDPUC transmission protocol named "ROB_1" whose remote
+    ! address is the Repose host and remote port is the bridge's bind port.
+    VAR egmident egm_id;
+    ! Convergence band in degrees; EGMRunJoint returns once all joints are
+    ! within it, and the loop below immediately restarts it.
+    CONST egm_minmax egm_band := [-0.1, 0.1];
+
+    PROC main()
+        EGMReset egm_id;
+        EGMGetId egm_id;
+        ! A missing sensor reply for CommTimeout seconds ends EGM motion.
+        EGMSetupUC ROB_1, egm_id, "default", "ROB_1" \Joint \CommTimeout:=1;
+        ! Feedback flows from here on, before any correction is accepted.
+        EGMStreamStart egm_id \SampleRate:=4;
+        WHILE TRUE DO
+            EGMActJoint egm_id \J1:=egm_band \J2:=egm_band \J3:=egm_band
+                \J4:=egm_band \J5:=egm_band \J6:=egm_band \MaxSpeedDeviation:=20;
+            EGMRunJoint egm_id, EGM_STOP_HOLD \J1 \J2 \J3 \J4 \J5 \J6
+                \CondTime:=60 \RampInTime:=0.05 \PosCorrGain:=1;
+        ENDWHILE
+    ERROR
+        IF ERRNO = ERR_UDPUC_COMM THEN
+            ! The bridge stopped answering (DisableDrives, exit or loss).
+            WaitTime 0.5;
+            TRYNEXT;
+        ENDIF
+    ENDPROC
+ENDMODULE
