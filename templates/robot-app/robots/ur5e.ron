@@ -274,6 +274,18 @@
                 "allow_motion": true,
                 "speed": 0.15,
                 "dashboard_port": 29999,
+                // Per-joint PID feedback for streamed motion, base first, error in
+                // radians: kp 1/s, ki 1/s^2, kd unitless; integral_limit caps
+                // the I term as a fraction of `speed`. Omitted fields keep
+                // these defaults. Only P = 2.0 is URSim-verified.
+                "joint_gains": [
+                    {"kp": 2.0, "ki": 0.0, "kd": 0.0, "integral_limit": 0.5},
+                    {"kp": 2.0, "ki": 0.0, "kd": 0.0, "integral_limit": 0.5},
+                    {"kp": 2.0, "ki": 0.0, "kd": 0.0, "integral_limit": 0.5},
+                    {"kp": 2.0, "ki": 0.0, "kd": 0.0, "integral_limit": 0.5},
+                    {"kp": 2.0, "ki": 0.0, "kd": 0.0, "integral_limit": 0.5},
+                    {"kp": 2.0, "ki": 0.0, "kd": 0.0, "integral_limit": 0.5},
+                ],
             },
             channels: [
                 Rx(id: "joint_state", msg: "repose_kinematics::CuJointStatePayload<6>"),

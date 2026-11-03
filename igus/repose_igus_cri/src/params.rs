@@ -5,6 +5,8 @@ use cu29::units::si::f64::Angle;
 use cu29::units::si::f64::AngularVelocity;
 use cu29::units::si::f64::Time;
 use cu29::units::si::time::second;
+use repose_joint_pid::CuJointGains;
+use repose_joint_pid::validate_gains;
 use serde::Deserialize;
 use serde::Serialize;
 use std::net::SocketAddr;
@@ -42,8 +44,8 @@ pub struct CuIgusCriParams {
     pub max_jog_percent: f64,
     /// Velocity commands older than this are replaced by zero jog.
     pub command_timeout: Time,
-    /// Position-error feedback for velocity commands, 1/s (>= 0).
-    pub position_gain: f64,
+    /// Per-joint PID position feedback for velocity commands (A1..A6).
+    pub joint_gains: [CuJointGains; 6],
 }
 
 impl Default for CuIgusCriParams {
@@ -60,7 +62,7 @@ impl Default for CuIgusCriParams {
             jog_full_scale: AngularVelocity::new::<degree_per_second>(60.0),
             max_jog_percent: 10.0,
             command_timeout: Time::new::<second>(0.1),
-            position_gain: 2.0,
+            joint_gains: [CuJointGains::default(); 6],
         }
     }
 }
@@ -103,9 +105,7 @@ impl CuIgusCriParams {
             return Err(CuError::from("CRI max_jog_percent must be in 0 < p <= 100"));
         }
         duration(self.command_timeout)?;
-        if !(self.position_gain.is_finite() && self.position_gain >= 0.0) {
-            return Err(CuError::from("CRI position_gain must be finite and >= 0"));
-        }
+        validate_gains(&self.joint_gains)?;
         Ok(())
     }
 

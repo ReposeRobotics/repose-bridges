@@ -1,5 +1,5 @@
 [workspace]
-members = ["igus/repose_igus_cri", "igus/rebel_app", "universal_robots/repose_ur", "universal_robots/ur_app"]
+members = ["common/repose_joint_pid", "igus/repose_igus_cri", "igus/rebel_app", "universal_robots/repose_ur", "universal_robots/ur_app"]
 resolver = "3"
 
 [workspace.package]
@@ -11,5 +11,6 @@ publish = false
 
 [workspace.dependencies]
 cu29 = { version = "1.3.1", features = ["units", "reflect"] }
+repose-joint-pid = { path = "common/repose_joint_pid" }
 bincode = { package = "cu-bincode", version = "2.2.0", features = ["derive"] }
 serde = { version = "1", features = ["derive"] }

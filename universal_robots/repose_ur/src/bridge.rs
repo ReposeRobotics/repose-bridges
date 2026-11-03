@@ -55,12 +55,23 @@ pub struct CuUrBridge {
     worker: Option<JoinHandle<()>>,
     #[reflect(ignore)]
     stale_after: Duration,
+    /// PID state and the time of the last velocity command it saw.
+    #[cfg(feature = "control")]
+    #[reflect(ignore)]
+    pid: repose_joint_pid::JointPid<6>,
+    #[cfg(feature = "control")]
+    #[reflect(ignore)]
+    last_velocity: Option<Instant>,
 }
 impl CuUrBridge {
     pub fn from_params(params: CuUrParams) -> CuResult<Self> {
         params.validate()?;
         Ok(Self {
             stale_after: duration(params.stale_after)?,
+            #[cfg(feature = "control")]
+            pid: repose_joint_pid::JointPid::new(params.joint_gains),
+            #[cfg(feature = "control")]
+            last_velocity: None,
             params,
             seen: [0; 2],
             shared: Arc::new(Mutex::new(Shared::default())),
@@ -100,6 +111,10 @@ impl CuBridge for CuUrBridge {
     }
     fn start(&mut self, _ctx: &CuContext) -> CuResult<()> {
         self.close();
+        #[cfg(feature = "control")]
+        {
+            self.last_velocity = None;
+        }
         let (stream, recipe, input) = transport::connect(&self.params)?;
         self.shared = Arc::new(Mutex::new(Shared::default()));
         self.seen = [0; 2];
@@ -208,24 +223,35 @@ impl CuBridge for CuUrBridge {
             if state.pending.is_some() || state.active.is_some() {
                 return Err(CuError::from("UR point move in progress"));
             }
-            let mut velocity = [0.0; 6];
             let maximum = self.params.speed.get::<radian_per_second>();
+            let mut feedforward = [0.0; 6];
+            let mut error = [0.0; 6];
             for i in 0..6 {
-                let repose_kinematics::CuJointVelocity::Revolute(feedforward) =
-                    command.velocities[i]
-                else {
+                let repose_kinematics::CuJointVelocity::Revolute(v) = command.velocities[i] else {
                     return Err(CuError::from("UR requires revolute velocities"));
                 };
-                let error = target[i] - status.joints[i].get::<radian>();
-                let feedforward = feedforward.get::<radian_per_second>();
-                if !feedforward.is_finite() || error.abs() > self.params.max_step.get::<radian>() {
+                feedforward[i] = v.get::<radian_per_second>();
+                error[i] = target[i] - status.joints[i].get::<radian>();
+                if !feedforward[i].is_finite()
+                    || error[i].abs() > self.params.max_step.get::<radian>()
+                {
                     return Err(CuError::from(
                         "UR invalid velocity or tracking error exceeds max_step",
                     ));
                 }
-                velocity[i] =
-                    (feedforward + self.params.position_gain * error).clamp(-maximum, maximum);
             }
+            // A gap longer than the command timeout restarts the PID.
+            let now = Instant::now();
+            let timeout = duration(self.params.command_timeout)?;
+            let dt = self
+                .last_velocity
+                .map(|t| now.duration_since(t))
+                .filter(|gap| *gap <= timeout)
+                .map_or(0.0, |gap| gap.as_secs_f64());
+            self.last_velocity = Some(now);
+            let feedback = self.pid.update(error, dt, maximum);
+            let velocity: [f64; 6] =
+                std::array::from_fn(|i| (feedforward[i] + feedback[i]).clamp(-maximum, maximum));
             state.velocity = Some((velocity, Instant::now()));
             return Ok(());
         }

@@ -88,6 +88,13 @@ pub struct CuIgusCriBridge {
     #[cfg(feature = "control")]
     #[reflect(ignore)]
     command_timeout: Duration,
+    /// PID state and the time of the last velocity command it saw.
+    #[cfg(feature = "control")]
+    #[reflect(ignore)]
+    pid: repose_joint_pid::JointPid<6>,
+    #[cfg(feature = "control")]
+    #[reflect(ignore)]
+    last_velocity: Option<Instant>,
 }
 
 impl CuIgusCriBridge {
@@ -99,8 +106,9 @@ impl CuIgusCriBridge {
         let jog_limits = JogLimits {
             full_scale: params.jog_full_scale,
             max_percent: params.max_jog_percent,
-            position_gain: params.position_gain,
         };
+        #[cfg(feature = "control")]
+        let pid = repose_joint_pid::JointPid::new(params.joint_gains);
         #[cfg(feature = "control")]
         let command_timeout = duration(params.command_timeout)?;
         Ok(Self {
@@ -108,6 +116,10 @@ impl CuIgusCriBridge {
             jog_limits,
             #[cfg(feature = "control")]
             command_timeout,
+            #[cfg(feature = "control")]
+            pid,
+            #[cfg(feature = "control")]
+            last_velocity: None,
             params,
             seen_joint_state: 0,
             seen_cri_status: 0,
@@ -185,6 +197,10 @@ impl CuBridge for CuIgusCriBridge {
     }
 
     fn start(&mut self, _ctx: &CuContext) -> CuResult<()> {
+        #[cfg(feature = "control")]
+        {
+            self.last_velocity = None;
+        }
         self.close();
         let stream = TcpStream::connect_timeout(
             &self.params.socket_address()?,
@@ -289,8 +305,16 @@ impl CuBridge for CuIgusCriBridge {
                     let Some((_, measured)) = shared.latest.as_ref() else {
                         return Ok(());
                     };
-                    let jog =
-                        jog_percent(command, measured, &self.jog_limits).map_err(CuError::from)?;
+                    // A gap longer than the command timeout restarts the PID.
+                    let now = Instant::now();
+                    let dt = self
+                        .last_velocity
+                        .map(|t| now.duration_since(t))
+                        .filter(|gap| *gap <= self.command_timeout)
+                        .map_or(0.0, |gap| gap.as_secs_f64());
+                    self.last_velocity = Some(now);
+                    let jog = jog_percent(command, measured, &self.jog_limits, &mut self.pid, dt)
+                        .map_err(CuError::from)?;
                     shared.jog = jog;
                     shared.jog_until = Some(Instant::now() + self.command_timeout);
                     return Ok(());

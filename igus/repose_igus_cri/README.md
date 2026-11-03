@@ -152,8 +152,8 @@ cargo run -p repose-igus-cri --features control --example move -- 192.168.3.11:3
 
 `joint_command` with `mode: velocity` streams CRI jog: the bridge sends
 `ALIVEJOG` every 50 ms with per-joint percent of `jog_full_scale`. The jog is
-the command's feed-forward velocity plus `position_gain` × (commanded −
-measured position), clamped to `max_jog_percent`; a joint whose jog would
+the command's feed-forward velocity plus per-joint PID feedback on
+(commanded − measured position, in degrees), clamped to `max_jog_percent`; a joint whose jog would
 cross its limit within 0.2 s is zeroed. Same opt-ins and gates as Move Joint
 (in control, motion allowed, no Move Joint in flight). A command older than
 `command_timeout` drops the jog to zero. Send commands every cycle and end a
@@ -164,8 +164,26 @@ motion with zero velocity on the final position, so feedback settles it.
 | `jog_full_scale` | 60 °/s | measured: CRI jog is percent of max joint speed, linear, the same on A1–A6 |
 | `max_jog_percent` | 10 | 6 °/s |
 | `command_timeout` | 0.1 s | |
-| `position_gain` | 2.0 /s | |
+| `joint_gains` | 6 × `(kp: 2.0, ki: 0.0, kd: 0.0, integral_limit: 0.5)` | per joint A1–A6, see below |
 
+`joint_gains` is a list of six entries, A1 first. `kp` is 1/s, `ki` 1/s²,
+`kd` dimensionless; all finite and >= 0. `integral_limit` (0–1) caps the
+integral term at that fraction of the jog cap (`max_jog_percent` of
+`jog_full_scale`). The derivative is taken on the position error between
+consecutive commands. The PID restarts (proportional only) on the first
+command and after any gap longer than `command_timeout`. Omitted fields in an
+entry keep their defaults:
+
+```ron
+"joint_gains": [
+    {"kp": 2.0, "ki": 0.5},
+    {"kp": 2.0, "ki": 0.5},
+    {"kp": 2.5},
+    {}, {}, {"kp": 1.5, "kd": 0.05},
+],
+```
+
+Only the defaults (P = 2.0) have been verified on hardware.
 Verified on RobotControl V980-14 with `examples/jog.rs` (A6 ±3 °/s, 2 s legs):
 tracking error ≤ 0.02° at constant speed, about 1° lag for 0.5 s after a
 direction reversal (controller acceleration ramp), and 0.03° final error

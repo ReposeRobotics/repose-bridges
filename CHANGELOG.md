@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Per-joint PID gains for streamed velocity commands on `repose-igus-cri` and
+  `repose-ur`: `joint_gains` in RON takes six `{kp, ki, kd, integral_limit}`
+  entries (shared `repose-joint-pid` crate). **Breaking:** replaces the scalar
+  `position_gain`; the default (`kp: 2.0`, no I/D) behaves as before. I/D
+  terms are not yet verified on hardware. The template's robot profiles list
+  `joint_gains` with the defaults, ready to tune.
+
 - Template: select igus ReBeL or UR5e/URSim in `robot.ron`, then `cargo run`
   the same program with the Repose v0.7.1 planner API. The build selects the
   matching bridge/model RON profile. Include separate address prompts and

@@ -12,7 +12,8 @@ Choose the robot in `robot.ron`:
 Then run `cargo run`. The build selects `robots/igus_rebel.ron` or
 `robots/ur5e.ron` and generates `copperconfig.ron` for Copper. Change `robot.ron`
 and run again to switch; no Cargo features or program changes are needed.
-Edit each robot's profile for its address, planner, speed and model parameters.
+Edit each robot's profile for its address, planner, speed, per-joint PID
+gains (`joint_gains`) and model parameters.
 `copperconfig.ron` is generated and ignored by Git; edit the source profiles.
 
 The default program offsets all joints by 5° and back, then waits. Absolute
