@@ -1,0 +1,32 @@
+[package]
+name = "repose-abb"
+description = "Copper bridge for ABB OmniCore robots over Externally Guided Motion (EGM)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[package.metadata.copper]
+kind = "bridge"
+domains = ["robotics/abb"]
+environments = ["host"]
+
+[features]
+# Session and joint_command Tx channels: replies to EGM with joint corrections.
+control = []
+
+[dependencies]
+cu29.workspace = true
+bincode.workspace = true
+serde.workspace = true
+repose-controller = { git = "https://github.com/ReposeRobotics/repose.git", tag = "v0.7.1" }
+repose-kinematics = { git = "https://github.com/ReposeRobotics/repose.git", tag = "v0.7.1" }
+repose-robot-interface = { git = "https://github.com/ReposeRobotics/repose.git", tag = "v0.7.1" }
+
+[[example]]
+name = "abb_monitor"
+
+[[example]]
+name = "abb_move"
+required-features = ["control"]

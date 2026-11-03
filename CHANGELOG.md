@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Add `repose-abb` under `abb/`: ABB OmniCore bridge over Externally Guided
+  Motion (EGM). Default builds only receive EGM feedback (joint state, motor,
+  MCI and RAPID state); the `control` feature adds the standard session and
+  `joint_command` channels, answering feedback with joint corrections inside
+  an explicitly enabled session. Includes a bounded protobuf codec, monitor and
+  move examples, and a sample RAPID module. Not yet verified on RobotStudio or
+  hardware.
+
 - Template: `cargo generate` now asks for the robot (`igus_rebel` or `ur5e`)
   and only that robot's address. The project depends only on that robot's
   bridge crate, and its profile becomes `copperconfig.ron` directly; `robot.ron`
