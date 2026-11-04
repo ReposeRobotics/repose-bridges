@@ -70,16 +70,17 @@ const SETTLE_S: f64 = 3.0;
 #[derive(Debug, Clone, Copy)]
 pub enum Step {
     /// Absolute joint angles in degrees.
-    Joints([f64; 6]),
+    JAbsolut([f64; 6]),
     /// Joint offsets in degrees from the previous target.
-    Offset([f64; 6]),
-    /// Tool translation in metres (base frame), orientation kept; uses IK.
-    Tool([f64; 3]),
+    JRelative([f64; 6]),
+    /// Relative tool translation in metres (base frame), orientation kept.
+    /// Endpoint IK followed in joint space; the TCP path is not straight.
+    TCPRelative([f64; 3]),
     /// Hold for this many seconds.
     Wait(f64),
     /// Absolute joint angles in degrees, reached along a collision-free path
     /// from the planner task.
-    Plan([f64; 6]),
+    JPlanned([f64; 6]),
 }
 
 /// Progress of the current motion step.
@@ -109,7 +110,7 @@ enum Phase {
 struct Params {
     chain: CuChainSpec<6>,
     collision_model: CuCollisionModelSpec<6>,
-    /// Planner for `Plan` steps.
+    /// Planner for `JPlanned` steps.
     #[serde(default)]
     planner: CuPlannerChoice,
     /// Peak joint speed of every move, degrees per second.
@@ -225,9 +226,9 @@ impl RobotProgram {
     /// Joint target for a motion step, from the previous target.
     fn solve(&self, step: Step, from: [CuJointPosition; 6]) -> CuResult<[CuJointPosition; 6]> {
         Ok(match step {
-            Step::Joints(d) => d.map(deg),
-            Step::Offset(d) => core::array::from_fn(|i| deg(degrees(from[i]) + d[i])),
-            Step::Tool(xyz) => {
+            Step::JAbsolut(d) => d.map(deg),
+            Step::JRelative(d) => core::array::from_fn(|i| deg(degrees(from[i]) + d[i])),
+            Step::TCPRelative(xyz) => {
                 let mut pose = Transform3D::<f64>::identity();
                 self.validity.chain().forward_kinematics(&from, &mut pose)?;
                 let mut m = pose.to_matrix();
@@ -245,14 +246,14 @@ impl RobotProgram {
                     other => return Err(CuError::from(format!("IK did not converge: {other:?}"))),
                 }
             }
-            Step::Plan(d) => d.map(deg),
+            Step::JPlanned(d) => d.map(deg),
             Step::Wait(_) => from,
         })
     }
 
     /// Solve and collision-check every step from `start` before anything
     /// moves. Direct moves check their joint-space segment (the controller
-    /// interpolates in joint space); `Plan` steps check only their goal.
+    /// interpolates in joint space); `JPlanned` steps check only their goal.
     fn preflight(&self, start: [CuJointPosition; 6]) -> Result<(), String> {
         if !self.validity.is_configuration_free(&start) {
             return Err("start pose is out of limits or in collision".into());
@@ -264,10 +265,10 @@ impl RobotProgram {
             if !self.validity.is_configuration_free(&goal) {
                 return Err(format!("step {n} ({step:?}): target out of limits or in collision"));
             }
-            let direct = !matches!(step, Step::Plan(_) | Step::Wait(_));
+            let direct = !matches!(step, Step::JPlanned(_) | Step::Wait(_));
             if direct && !self.validity.is_segment_free(&from, &goal) {
                 return Err(format!(
-                    "step {n} ({step:?}): straight joint move collides; use Plan([..])"
+                    "step {n} ({step:?}): straight joint move collides; use JPlanned([..])"
                 ));
             }
             from = goal;
@@ -385,7 +386,7 @@ impl CuTask for RobotProgram {
                                 return Ok(());
                             }
                         };
-                        if let Step::Plan(_) = step {
+                        if let Step::JPlanned(_) = step {
                             let request = CuJointPlanRequest {
                                 start: previous,
                                 goal,
@@ -532,7 +533,7 @@ mod tests {
         };
         // A pose like the arm's measured start pose.
         let from = [-1.1, 45.5, 60.0, -3.3, -80.9, 28.7].map(deg);
-        let up = program.solve(Step::Tool([0.0, 0.0, 0.03]), from).unwrap();
+        let up = program.solve(Step::TCPRelative([0.0, 0.0, 0.03]), from).unwrap();
         let mut a = Transform3D::<f64>::identity();
         let mut b = Transform3D::<f64>::identity();
         program.validity.chain().forward_kinematics(&from, &mut a).unwrap();
@@ -543,12 +544,12 @@ mod tests {
         // Pre-flight: reachable steps pass; an unreachable tool move is caught.
         assert!(program.preflight(from).is_ok());
         let mut stretched = program;
-        stretched.steps = vec![Step::Tool([0.0, 0.0, 0.03])];
+        stretched.steps = vec![Step::TCPRelative([0.0, 0.0, 0.03])];
         let upright = [-10.0, -5.0, -5.0, -5.0, -5.0, -5.0].map(deg);
         let err = stretched.preflight(upright).unwrap_err();
         assert!(err.contains("step 1"), "{err}");
         let program = stretched;
-        let offset = program.solve(Step::Offset([5.0, 0.0, 0.0, 0.0, 0.0, 0.0]), from).unwrap();
+        let offset = program.solve(Step::JRelative([5.0, 0.0, 0.0, 0.0, 0.0, 0.0]), from).unwrap();
         assert!((degrees(offset[0]) - 3.9).abs() < 1e-9);
     }
 

@@ -1,7 +1,7 @@
 // The program graph: the `program` task (your steps in src/program.rs) and one
 // robot bridge. To use another robot, change the bridge `type`/`config` and
 // the program's `chain` and `collision_model` (used for IK, the pre-flight
-// collision check, and the planner behind `Plan` steps).
+// collision check, and the planner behind `JPlanned` steps).
 (
     runtime: (rate_target_hz: 50),
     tasks: [
@@ -15,7 +15,7 @@
             config: {
                 "chain": "igus_rebel",
                 "collision_model": "igus_rebel",
-                // Planner for Plan steps: rrt_connect (default), rrt_star,
+                // Planner for JPlanned steps: rrt_connect (default), rrt_star,
                 // prm, a_star, stomp, path_optimizer, direct.
                 "planner": "rrt_connect",
                 "speed": 5.0,

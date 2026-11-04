@@ -11,7 +11,7 @@ cargo run          # the robot (igus_rebel or ur5e) is asked by cargo generate
 
 Write your program in `src/program.rs` as a list of steps: absolute joint
 moves, joint offsets, tool moves in metres (solved with Repose IK),
-collision-free planned moves (`Plan`, Repose RRT-Connect), and waits. Every
+collision-free planned moves (`JPlanned`, Repose RRT-Connect), and waits. Every
 move is timed into a smooth trajectory (Repose trajectory timing) and streamed
 to the robot; set `speed` and `acceleration` in `copperconfig.ron`. Before
 anything moves, every step is solved and checked for joint limits and
