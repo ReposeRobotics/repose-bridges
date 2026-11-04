@@ -19,7 +19,7 @@ pub fn steps() -> Vec<Step> {
 }
 ```
 
-`JAbsolut`, `JRelative`, `TCPRelative`, `JPlanned` and `Wait` have the same names, units and
+`JAbsolut`, `JRelative`, `TCPRelative`, `TCPAbsolut`, `JPlanned` and `Wait` have the same names, units and
 implementation: the app compiles the template's **same runner and planner source
 files**, with no UR-specific program logic. Copy `program.rs` between programs;
 select the bridge/address and the appropriate kinematic/collision models in RON.
@@ -32,3 +32,17 @@ hardware collision model. It omits environment and tool geometry. Use a model
 and calibration appropriate to the actual robot before running TCPRelative/JPlanned on
 hardware; other UR models need their own configuration. This example targets
 UR5e URSim, not all UR robots.
+
+`TCPRelative([x, y, z])` moves the TCP by a base-frame displacement in metres,
+keeping orientation fixed. `TCPAbsolut([x, y, z, roll, pitch, yaw])` targets a
+base-frame pose in metres and degrees. Both use Repose's Cartesian planning
+and timing task: straight translation, shortest-arc rotation, and full-path
+preflight checks. A blocked or unreachable line stops the program; it does
+not fall back to a joint move. Fixed-capacity paths can also fail explicitly.
+
+Optional `scene` and `exclusions` in the runner's RON config are shared by
+joint planning and Cartesian motion. Cartesian results must match that scene
+revision and exclusions before following. These are discrete collision checks,
+not continuous swept-volume certification. Hardware behavior of this new TCP
+execution path has not been verified. Planner scratch requires an 8 MiB thread
+stack (the examples run on the main thread).

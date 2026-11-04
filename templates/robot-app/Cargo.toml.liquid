@@ -16,13 +16,16 @@ cu-spatial-payloads = "1.3.0"
 {% else %}repose-ur = { git = "https://github.com/ReposeRobotics/repose-bridges.git", branch = "master", features = ["control"] }
 {% endif %}
 # Repose: kinematics/IK, collision checking, planning, the robot contract.
-repose-controller = { git = "https://github.com/ReposeRobotics/repose.git", tag = "v0.7.1" }
-repose-kinematics = { git = "https://github.com/ReposeRobotics/repose.git", tag = "v0.7.1" }
-repose-robot-interface = { git = "https://github.com/ReposeRobotics/repose.git", tag = "v0.7.1" }
-repose-collision = { git = "https://github.com/ReposeRobotics/repose.git", tag = "v0.7.1" }
-repose-motion-planning = { git = "https://github.com/ReposeRobotics/repose.git", tag = "v0.7.1" }
-repose = { git = "https://github.com/ReposeRobotics/repose.git", tag = "v0.7.1" }
-repose-trajectory = { git = "https://github.com/ReposeRobotics/repose.git", tag = "v0.7.1" }
+repose-controller = { git = "https://github.com/ReposeRobotics/repose.git", rev = "e554cca5eb5d5577bbcb63a11bbaa3da0c43b36c" }
+repose-kinematics = { git = "https://github.com/ReposeRobotics/repose.git", rev = "e554cca5eb5d5577bbcb63a11bbaa3da0c43b36c" }
+repose-robot-interface = { git = "https://github.com/ReposeRobotics/repose.git", rev = "e554cca5eb5d5577bbcb63a11bbaa3da0c43b36c" }
+repose-collision = { git = "https://github.com/ReposeRobotics/repose.git", rev = "e554cca5eb5d5577bbcb63a11bbaa3da0c43b36c" }
+repose-motion-planning = { git = "https://github.com/ReposeRobotics/repose.git", rev = "e554cca5eb5d5577bbcb63a11bbaa3da0c43b36c" }
+repose = { git = "https://github.com/ReposeRobotics/repose.git", rev = "e554cca5eb5d5577bbcb63a11bbaa3da0c43b36c" }
+repose-trajectory = { git = "https://github.com/ReposeRobotics/repose.git", rev = "e554cca5eb5d5577bbcb63a11bbaa3da0c43b36c" }
 
 [build-dependencies]
 cu29-build = "1.3.0"
+
+[dev-dependencies]
+ron = "0.12"

@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- **Breaking:** `TCPRelative` now executes a straight Cartesian TCP path instead
+  of solving only the endpoint and interpolating joints. Add `TCPAbsolut` for
+  absolute base-frame poses (metres, roll/pitch/yaw in degrees). Both use the
+  merged Repose Cartesian planning task, check the full path during preflight,
+  and reject failed or mismatched scene results before following. Optional
+  runner `scene` and `exclusions` apply to joint and Cartesian planning.
+  Pin all Repose crates to commit `e554cca` for compatible shared types.
+  Verified with offline tests only; no new hardware motion was performed.
+
+
 - **Breaking:** Rename robot-program steps: `Joints` → `JAbsolut`, `Offset` →
   `JRelative`, `Plan` → `JPlanned`, and `Tool` → `TCPRelative`. Update programs
   to the new variants; their units and motion behavior are unchanged.
