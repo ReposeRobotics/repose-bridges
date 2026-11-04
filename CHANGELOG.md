@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **Breaking:** Rename robot-program steps: `Joints` → `JAbsolut`, `Offset` →
+  `JRelative`, `Plan` → `JPlanned`, and `Tool` → `TCPRelative`. Update programs
+  to the new variants; their units and motion behavior are unchanged.
+  `TCPRelative` solves a relative tool target with endpoint IK and follows a
+  joint-space trajectory; it does not promise a straight TCP path.
+
+
 - Add `repose-abb` under `abb/`: ABB OmniCore bridge over Externally Guided
   Motion (EGM). Default builds only receive EGM feedback (joint state, motor,
   MCI and RAPID state); the `control` feature adds the standard session and

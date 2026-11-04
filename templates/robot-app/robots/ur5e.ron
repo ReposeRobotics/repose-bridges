@@ -256,7 +256,7 @@
                     "safety_margin": 0.005,
                     "skip_adjacent_links": true
                 },
-                // Planner for Plan steps: rrt_connect (default), rrt_star,
+                // Planner for JPlanned steps: rrt_connect (default), rrt_star,
                 // prm, a_star, stomp, path_optimizer, direct.
                 "planner": "rrt_connect",
                 "speed": 5.0,

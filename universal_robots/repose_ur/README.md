@@ -17,7 +17,7 @@ channel carrying `repose_robot_interface::CuSessionState`. Session operations
 require `allow_control: true`; motion additionally requires `allow_motion: true`.
 
 The shared [robot program](../ur_app) uses exactly the igus template's runner,
-planner and `program::steps()` API: `Joints`, `Offset`, `Tool`, `Plan`, `Wait`.
+planner and `program::steps()` API: `JAbsolut`, `JRelative`, `TCPRelative`, `JPlanned`, `Wait`.
 Velocity mode streams feed-forward joint velocity plus position-error feedback
 through a resident URScript loop. Position mode still supports individual
 controller-planned `movej` commands outside a streaming session. Effort is refused.
