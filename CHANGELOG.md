@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Add `repose-panthera-ht` under `panthera/`: Copper bridge for the HighTorque
+  Panthera HT over the open v6 comm-board serial protocol
+  (`HighTorque-Robotics/hightorque_robot`), reimplemented in pure Rust.
+  Default builds only receive (`joint_state`, `panthera_status`,
+  `session_state`); the `control` feature adds the standard `session` and
+  `joint_command` channels, sending position commands as MIT
+  `pos_vel_tqe_kp_kd` frames. Includes a monitor and a move example and a
+  crate README documenting the wire format. Not yet verified on hardware.
+
 - **Breaking:** `TCPRelative` now executes a straight Cartesian TCP path instead
   of solving only the endpoint and interpolating joints. Add `TCPAbsolut` for
   absolute base-frame poses (metres, roll/pitch/yaw in degrees). Both use the

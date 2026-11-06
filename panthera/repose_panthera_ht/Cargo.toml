@@ -1,0 +1,29 @@
+[package]
+name = "repose-panthera-ht"
+description = "Copper bridge for the HighTorque Panthera HT over the v6 comm board serial protocol"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[features]
+control = []
+
+[dependencies]
+cu29.workspace = true
+bincode.workspace = true
+serde.workspace = true
+repose-joint-pid.workspace = true
+serialport = "4.7"
+# Match the shared robot-app runner and existing bridges.
+repose-controller = { git = "https://github.com/ReposeRobotics/repose.git", rev = "e554cca5eb5d5577bbcb63a11bbaa3da0c43b36c" }
+repose-kinematics = { git = "https://github.com/ReposeRobotics/repose.git", rev = "e554cca5eb5d5577bbcb63a11bbaa3da0c43b36c" }
+repose-robot-interface = { git = "https://github.com/ReposeRobotics/repose.git", rev = "e554cca5eb5d5577bbcb63a11bbaa3da0c43b36c" }
+
+[[example]]
+name = "panthera_monitor"
+
+[[example]]
+name = "panthera_move"
+required-features = ["control"]
