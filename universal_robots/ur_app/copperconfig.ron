@@ -9,7 +9,7 @@
     tasks: [
         (
             id: "program",
-            type: "runner::RobotProgram",
+            type: "runner::RobotProgram<6>",
             // Kinematic and collision models: preset names or inline specs
             // (repose_kinematics::CuChainSpec, repose_collision::CuCollisionModelSpec).
             // speed: peak joint speed in deg/s, acceleration in deg/s^2. The

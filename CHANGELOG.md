@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+- **Breaking:** The robot-app template runner is generic over the joint count:
+  `runner::RobotProgram<N>`, `Step<N>` (joint targets are `[f64; N]`), and
+  `program::steps::<N>()`. The igus ReBeL and UR5e profiles now write
+  `type: "runner::RobotProgram<6>"`; their behavior is unchanged. Projects
+  generated from earlier templates keep working as they are; when copying the
+  new runner or `program.rs` into one, write `runner::RobotProgram<6>` in
+  `copperconfig.ron` and make `steps()` generic (`[5.0; N]` instead of six
+  literals). This lets profiles with other joint counts (for example a 5-DOF
+  SO-101) reuse the same runner and program.
+
+- Add an SO-ARM100 choice (`so_arm`) to the robot-app `cargo generate`
+  template: a simulated 5-DOF arm driven by a bundled MuJoCo sidecar
+  (`sim/sidecar.py`, `sim/so_arm100.urdf`) through `sim::SimRobot<5>`, which
+  wraps `repose_mujoco_sim::CuMujocoSimBridge<5>` with the standard robot
+  channels. Uses Repose `54e23b9`; the igus and UR profiles stay on `e554cca`.
+  Verified end to end in simulation only.
+
 - Add `repose-panthera-ht` under `panthera/`: Copper bridge for the HighTorque
   Panthera HT over the open v6 comm-board serial protocol
   (`HighTorque-Robotics/hightorque_robot`), reimplemented in pure Rust.
