@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Add a Copper-log-to-Rerun converter to the robot-app template:
+  `cargo run --features rrd --bin to_rrd` turns `robot.copper` into
+  `robot.rrd` (joint positions and velocities, the arm in 3D from the
+  configured chain, tool path, session commands). Works for every template
+  robot; the joint count comes from the graph's message types. Generated
+  projects now set `default-run`, so plain `cargo run` still starts the robot
+  program.
+
 - Pin all Repose crates to commit `54e23b9` (was `e554cca`) in every bridge,
   example app and the robot-app template, so all template robots share one
   Repose revision. Projects that depend on these bridges must use the same
