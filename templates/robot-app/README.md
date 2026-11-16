@@ -13,6 +13,22 @@ bridge address, planner, `speed`, per-joint PID gains (`joint_gains`) and the
 kinematic and collision models. Edit it there, then `cargo run`. To switch
 robots, generate a new project and copy `src/program.rs` across.
 
+Every run writes a Copper log, `robot.copper` (10 MiB slab files
+`robot_*.copper`), in the project root. To view a run in
+[Rerun](https://rerun.io), convert the log afterwards:
+
+    cargo run --features rrd --bin to_rrd    # robot.copper -> robot.rrd
+    rerun robot.rrd                          # Rerun viewer 0.43
+
+`src/bin/to_rrd.rs` writes measured and commanded joint positions (degrees),
+measured joint velocities, the arm as a line through its joint frames (from
+the `chain` in `copperconfig.ron`), the measured tool path and the session
+commands, on the `cu_time` (Copper clock) and `copperlist` timelines. It runs
+offline; the robot program itself never logs to Rerun. The `rrd` feature is
+off by default because the Rerun SDK is a large build. The converter decodes
+the log with the message types of the current `copperconfig.ron`, so convert
+a log before changing the graph.
+
 The default program offsets all joints by 5° and back, then waits. Absolute
 targets and tool moves must suit the robot and its starting pose.
 
