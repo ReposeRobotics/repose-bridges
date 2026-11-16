@@ -11,16 +11,19 @@
 //! - `joints/velocity/<n>`: measured velocities, degrees per second
 //! - `world/arm/measured`, `world/arm/commanded`: the arm as a line through
 //!   its joint frames, from the kinematic chain in `copperconfig.ron`
-//! - `world/tcp`: measured tool position
+//! - `world/tcp/<k>`: measured tool path, in segments of up to 256 points
 //! - `session`: session commands and their results, as text
 //!
 //! The joint count comes from the message types in `copperconfig.ron`.
 
 use cu_spatial_payloads::Transform3D;
+use cu29::bincode::config::standard;
+use cu29::bincode::decode_from_std_read;
+use cu29::bincode::error::DecodeError;
+use cu29::copperlist::CopperList;
 use cu29::prelude::*;
 use cu29::units::si::angle::degree;
 use cu29::units::si::angular_velocity::degree_per_second;
-use cu29_export::copperlists_reader;
 use repose_controller::CuJointCommandPayload;
 use repose_kinematics::CuChainSpec;
 use repose_kinematics::CuJointPosition;
@@ -36,6 +39,7 @@ use rerun::blueprint::TextLogView;
 use rerun::blueprint::TimeSeriesView;
 use rerun::blueprint::Vertical;
 use serde::Deserialize;
+use std::io::Read;
 use std::path::Path;
 use std::path::PathBuf;
 
@@ -43,6 +47,72 @@ gen_cumsgs!("copperconfig.ron");
 
 const MEASURED_COLOR: [u8; 3] = [80, 170, 255];
 const COMMANDED_COLOR: [u8; 3] = [255, 150, 60];
+/// Points per logged tool-path segment; bounds the work per cycle.
+const TCP_SEGMENT_POINTS: usize = 256;
+
+/// The measured tool path, logged as consecutive bounded segments.
+#[derive(Default)]
+struct ToolPath {
+    segment: usize,
+    points: Vec<[f32; 3]>,
+}
+
+impl ToolPath {
+    fn log(&mut self, rec: &RecordingStream, tool: [f32; 3]) -> CuResult<()> {
+        if self.points.len() == TCP_SEGMENT_POINTS {
+            // Start the next segment where this one ended, so the path stays joined.
+            let last = self.points[TCP_SEGMENT_POINTS - 1];
+            self.points.clear();
+            self.points.push(last);
+            self.segment += 1;
+        }
+        self.points.push(tool);
+        rec.log(
+            format!("world/tcp/{}", self.segment),
+            &rerun::LineStrips3D::new([self.points.clone()])
+                .with_colors([MEASURED_COLOR])
+                .with_radii([0.002]),
+        )
+        .map_err(rerun_error)
+    }
+}
+
+/// Counts the bytes read, to tell a clean end of log from a truncated record.
+struct CountingReader<R> {
+    inner: R,
+    bytes: u64,
+}
+
+impl<R: Read> Read for CountingReader<R> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let n = self.inner.read(buf)?;
+        self.bytes += n as u64;
+        Ok(n)
+    }
+}
+
+/// Next copper list, `None` at a clean end of the log. A malformed or
+/// truncated record, or a read error, is an error.
+fn next_copperlist<R: Read>(src: &mut CountingReader<R>) -> CuResult<Option<CopperList<CuMsgs>>> {
+    let start = src.bytes;
+    match decode_from_std_read::<CopperList<CuMsgs>, _, _>(src, standard()) {
+        Ok(list) => Ok(Some(list)),
+        Err(e) => {
+            let at_end = match &e {
+                DecodeError::UnexpectedEnd { .. } => true,
+                DecodeError::Io { inner, .. } => inner.kind() == std::io::ErrorKind::UnexpectedEof,
+                _ => false,
+            };
+            if at_end && src.bytes == start {
+                Ok(None)
+            } else {
+                Err(CuError::from(format!(
+                    "to_rrd: cannot decode the copper list at byte {start} of the log: {e}"
+                )))
+            }
+        }
+    }
+}
 
 /// The `program` task config; only the chain is needed here.
 #[derive(Deserialize)]
@@ -138,7 +208,7 @@ fn log_cycle<const N: usize>(
     chain: &CuKinematicChain<N>,
     state: &CuMsg<CuJointStatePayload<N>>,
     command: &CuMsg<CuJointCommandPayload<N>>,
-    tcp_path: &mut Vec<[f32; 3]>,
+    tcp_path: &mut ToolPath,
 ) -> CuResult<()> {
     if let Some(state) = state.payload() {
         for i in 0..N {
@@ -161,14 +231,7 @@ fn log_cycle<const N: usize>(
             &state.positions,
             MEASURED_COLOR,
         )? {
-            tcp_path.push(tool);
-            rec.log(
-                "world/tcp",
-                &rerun::LineStrips3D::new([tcp_path.clone()])
-                    .with_colors([MEASURED_COLOR])
-                    .with_radii([0.002]),
-            )
-            .map_err(rerun_error)?;
+            tcp_path.log(rec, tool)?;
         }
     }
     if let Some(command) = command.payload() {
@@ -252,7 +315,10 @@ fn main() -> CuResult<()> {
     else {
         return Err(CuError::from("to_rrd: expected a readable Copper log"));
     };
-    let reader = UnifiedLoggerIOReader::new(log, UnifiedLogType::CopperList);
+    let mut reader = CountingReader {
+        inner: UnifiedLoggerIOReader::new(log, UnifiedLogType::CopperList),
+        bytes: 0,
+    };
 
     let rec = rerun::RecordingStreamBuilder::new("{{project-name}}")
         .with_blueprint(blueprint())
@@ -262,10 +328,19 @@ fn main() -> CuResult<()> {
         .map_err(rerun_error)?;
 
     let mut chain = None;
-    let mut tcp_path = Vec::new();
+    let mut tcp_path = ToolPath::default();
     let mut session = CuSessionState::default();
     let mut cycles = 0u64;
-    for list in copperlists_reader::<CuMsgs>(reader) {
+    let mut failure = None;
+    loop {
+        let list = match next_copperlist(&mut reader) {
+            Ok(Some(list)) => list,
+            Ok(None) => break,
+            Err(e) => {
+                failure = Some(e);
+                break;
+            }
+        };
         let msgs = &list.msgs;
         let state = msgs.get_robot_rx_joint_state();
         rec.set_time_sequence("copperlist", list.id as i64);
@@ -301,11 +376,21 @@ fn main() -> CuResult<()> {
         }
         cycles += 1;
     }
+    // Keep what was converted, but do not report a cut-short log as success.
     rec.flush_blocking().map_err(rerun_error)?;
     println!(
         "to_rrd: {cycles} cycles from {} -> {}",
         input.display(),
         output.display()
     );
-    Ok(())
+    match failure {
+        Some(e) => {
+            eprintln!(
+                "to_rrd: the log ended early; {} holds only the cycles before it",
+                output.display()
+            );
+            Err(e)
+        }
+        None => Ok(()),
+    }
 }
