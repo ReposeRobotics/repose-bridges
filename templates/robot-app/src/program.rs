@@ -3,7 +3,7 @@
 //! the robot, and finishes when the robot settles on its goal. Afterwards the
 //! drives are disabled and control released.
 //!
-//! - `JAbsolut([..])`     absolute joint angles, degrees (A1..A6)
+//! - `JAbsolut([..])`     absolute joint angles, degrees (one per joint)
 //! - `JRelative([..])`     joint offsets from the previous target, degrees
 //! - `TCPRelative([x, y, z])`  move the tool by x/y/z metres in the base frame,
 //!   keeping its orientation along a collision-checked straight TCP path
@@ -20,11 +20,11 @@
 use crate::runner::Step;
 use crate::runner::Step::*;
 
-pub fn steps() -> Vec<Step> {
+pub fn steps<const N: usize>() -> Vec<Step<N>> {
     vec![
         // all joints at once, out and back
-        JRelative([5.0, 5.0, 5.0, 5.0, 5.0, 5.0]),
-        JRelative([-5.0, -5.0, -5.0, -5.0, -5.0, -5.0]),
+        JRelative([5.0; N]),
+        JRelative([-5.0; N]),
         Wait(1.0),
         // Add robot-appropriate absolute targets with JAbsolut([...]) or JPlanned([...]).
         // TCPRelative([0.0, 0.0, 0.03]) moves 3 cm straight up while holding orientation.

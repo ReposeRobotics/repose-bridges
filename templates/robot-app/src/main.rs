@@ -2,11 +2,13 @@
 //! `src/program.rs`. Runs until the program finishes or Ctrl-C, then stops
 //! the app so the bridge disables the drives and releases control.
 //!
-//! The arm MOVES: keep the e-stop in hand.
+//! The arm MOVES: keep the e-stop in hand. (The SO-ARM profile drives the
+//! MuJoCo simulator in `sim/` instead of hardware.)
 
 mod program;
 mod runner;
-
+{% if robot == "so_arm" %}mod sim;
+{% endif %}
 use cu29::prelude::*;
 use std::sync::atomic::Ordering;
 use std::time::Duration;

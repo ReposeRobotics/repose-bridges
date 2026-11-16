@@ -1,10 +1,14 @@
 # {{project-name}}
 
 Your steps are in `src/program.rs`: `JAbsolut`, `JRelative`, `TCPRelative`, `TCPAbsolut`, `JPlanned` and
-`Wait` use the same API on the igus ReBeL and the UR5e.
+`Wait` use the same API on the igus ReBeL, the UR5e and the simulated SO-ARM100.
 
 `cargo generate` asked which robot to use, so this project depends only on
-that robot's bridge. Its whole Copper graph is in `copperconfig.ron`: the
+that robot's bridge. The runner is generic over the joint count: the profile
+sets it with the `runner::RobotProgram<N>` task type and the `<N>` channel
+payload types (6 for the igus ReBeL and the UR5e, 5 for the SO-ARM100), and `src/program.rs` is
+written against `Step<N>` so the same program runs on any joint count.
+Its whole Copper graph is in `copperconfig.ron`: the
 bridge address, planner, `speed`, per-joint PID gains (`joint_gains`) and the
 kinematic and collision models. Edit it there, then `cargo run`. To switch
 robots, generate a new project and copy `src/program.rs` across.
@@ -17,6 +21,28 @@ commit `e554cca` (pose and Cartesian planning). Set `"planner"` in `copperconfig
 `rrt_star`, `prm`, `a_star`, `stomp`, `path_optimizer` or `direct`. The same runner
 performs preflight checks and streams timed trajectories for both robots.
 
+The SO-ARM100 profile (`so_arm`) runs a simulated 5-DOF arm, not hardware.
+Start the MuJoCo sidecar first, then the app:
+
+    python -m pip install mujoco numpy
+    python sim/sidecar.py            # headless, listens on 127.0.0.1:55091
+    python sim/sidecar.py --viewer   # or with a MuJoCo window (needs a display)
+    cargo run
+
+`src/sim.rs` (`sim::SimRobot<5>`) gives the runner the standard robot
+channels over `repose_mujoco_sim::CuMujocoSimBridge<5>`: line-delimited JSON
+over TCP, one joint command in and one state out per 20 ms cycle, positions in
+radians. It sends a hold at the measured pose in cycles without a command, and
+acknowledges every session command at once (a simulator has no drives);
+joint-state timestamps are the Copper receive time. The bundled
+`sim/so_arm100.urdf` and the chain in `copperconfig.ron` are a nominal
+straight-arm model with approximate collision capsules, not a calibrated
+SO-ARM100 or SO-101; the gripper is not simulated. With five joints a TCP pose
+fixes more than the arm can reach, so `TCPRelative`/`TCPAbsolut` targets must
+be reachable with the held orientation. This profile uses the newer Repose
+commit `54e23b9` (joint-count-generic MuJoCo bridge); the hardware profiles
+stay on `e554cca`.
+
 For URSim, start the repository's `universal_robots/repose_ur/compose.yaml`,
 complete initial PolyScope setup, and enable **and select** Remote Control.
 The default UR address is localhost:30004; Dashboard uses port 29999. For a
@@ -26,7 +52,7 @@ approximate collision capsules for simulation. Real hardware needs matching
 robot calibration, tool and collision geometry; other UR models need their own
 model configuration.
 
-Both robot configurations request control and motion. Running the program
+The igus and UR configurations request control and motion. Running the program
 moves the robot. Ctrl-C stops the app and winds down the bridge's session.
 
 `TCPRelative([x, y, z])` moves the TCP by a base-frame displacement in metres,

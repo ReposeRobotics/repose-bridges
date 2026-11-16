@@ -1,0 +1,144 @@
+<?xml version="1.0"?>
+<!-- Nominal SO-ARM100 5-DOF kinematic model for the MuJoCo robot-app example.
+
+     The five arm joints are named joint1..joint5 (shoulder_pan, shoulder_lift,
+     elbow_flex, wrist_flex, wrist_roll) to match the sidecar and the inline
+     chain in copperconfig.ron. The gripper is fixed (not a simulated joint).
+     Link lengths approximate the SO-ARM100 design; inertias are estimated from
+     primitive geometry. This is a simulation model, not a calibrated hardware
+     description: verify against your own arm before reusing the numbers. -->
+<robot name="so_arm100">
+  <link name="base_link">
+    <visual>
+      <origin xyz="0 0 0.03" rpy="0 0 0"/>
+      <geometry><box size="0.09 0.09 0.06"/></geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0.03" rpy="0 0 0"/>
+      <geometry><box size="0.09 0.09 0.06"/></geometry>
+    </collision>
+  </link>
+
+  <link name="link1">
+    <inertial>
+      <origin xyz="0 0 0.012" rpy="0 0 0"/>
+      <mass value="0.15"/>
+      <inertia ixx="0.00012" ixy="0" ixz="0" iyy="0.00012" iyz="0" izz="0.00010"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0.012" rpy="0 0 0"/>
+      <geometry><box size="0.06 0.06 0.045"/></geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0.012" rpy="0 0 0"/>
+      <geometry><box size="0.06 0.06 0.045"/></geometry>
+    </collision>
+  </link>
+  <joint name="joint1" type="revolute">
+    <parent link="base_link"/>
+    <child link="link1"/>
+    <origin xyz="0 0 0.061" rpy="0 0 0"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-1.92" upper="1.92" effort="3.0" velocity="3.0"/>
+  </joint>
+
+  <link name="link2">
+    <inertial>
+      <origin xyz="0 0 0.058" rpy="0 0 0"/>
+      <mass value="0.20"/>
+      <inertia ixx="0.00027" ixy="0" ixz="0" iyy="0.00025" iyz="0" izz="0.00007"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0.058" rpy="0 0 0"/>
+      <geometry><box size="0.04 0.05 0.116"/></geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0.058" rpy="0 0 0"/>
+      <geometry><box size="0.04 0.05 0.116"/></geometry>
+    </collision>
+  </link>
+  <joint name="joint2" type="revolute">
+    <parent link="link1"/>
+    <child link="link2"/>
+    <origin xyz="0 0 0.030" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="-1.57" upper="1.57" effort="3.0" velocity="3.0"/>
+  </joint>
+
+  <link name="link3">
+    <inertial>
+      <origin xyz="0 0 0.0675" rpy="0 0 0"/>
+      <mass value="0.18"/>
+      <inertia ixx="0.00030" ixy="0" ixz="0" iyy="0.00028" iyz="0" izz="0.00006"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0.0675" rpy="0 0 0"/>
+      <geometry><box size="0.035 0.045 0.135"/></geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0.0675" rpy="0 0 0"/>
+      <geometry><box size="0.035 0.045 0.135"/></geometry>
+    </collision>
+  </link>
+  <joint name="joint3" type="revolute">
+    <parent link="link2"/>
+    <child link="link3"/>
+    <origin xyz="0 0 0.116" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="-1.57" upper="1.57" effort="3.0" velocity="3.0"/>
+  </joint>
+
+  <link name="link4">
+    <inertial>
+      <origin xyz="0 0 0.02" rpy="0 0 0"/>
+      <mass value="0.10"/>
+      <inertia ixx="0.00003" ixy="0" ixz="0" iyy="0.00003" iyz="0" izz="0.00002"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0.02" rpy="0 0 0"/>
+      <geometry><box size="0.03 0.035 0.04"/></geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0.02" rpy="0 0 0"/>
+      <geometry><box size="0.03 0.035 0.04"/></geometry>
+    </collision>
+  </link>
+  <joint name="joint4" type="revolute">
+    <parent link="link3"/>
+    <child link="link4"/>
+    <origin xyz="0 0 0.135" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="-1.57" upper="1.57" effort="3.0" velocity="3.0"/>
+  </joint>
+
+  <link name="link5">
+    <inertial>
+      <origin xyz="0 0 0.04" rpy="0 0 0"/>
+      <mass value="0.15"/>
+      <inertia ixx="0.00010" ixy="0" ixz="0" iyy="0.00009" iyz="0" izz="0.00004"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0.035" rpy="0 0 0"/>
+      <geometry><box size="0.03 0.04 0.07"/></geometry>
+    </visual>
+    <visual>
+      <origin xyz="0.012 0 0.085" rpy="0 0 0"/>
+      <geometry><box size="0.008 0.03 0.04"/></geometry>
+    </visual>
+    <visual>
+      <origin xyz="-0.012 0 0.085" rpy="0 0 0"/>
+      <geometry><box size="0.008 0.03 0.04"/></geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0.045" rpy="0 0 0"/>
+      <geometry><box size="0.03 0.04 0.09"/></geometry>
+    </collision>
+  </link>
+  <joint name="joint5" type="revolute">
+    <parent link="link4"/>
+    <child link="link5"/>
+    <origin xyz="0 0 0.040" rpy="0 0 0"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-2.96" upper="2.96" effort="3.0" velocity="3.0"/>
+  </joint>
+</robot>

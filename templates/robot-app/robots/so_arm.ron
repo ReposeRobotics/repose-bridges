@@ -1,0 +1,97 @@
+// SO-ARM100 (5 DOF) in the MuJoCo simulator: start `python sim/sidecar.py`
+// first (see README). Nominal straight-arm model matching sim/so_arm100.urdf;
+// approximate collision capsules: simulator example, not hardware validation.
+// The same src/program.rs runs on the igus ReBeL and UR5e templates too.
+(
+    runtime: (rate_target_hz: 50),
+    tasks: [
+        (
+            id: "program",
+            type: "runner::RobotProgram<5>",
+            // Kinematic and collision models: preset names or inline specs
+            // (repose_kinematics::CuChainSpec, repose_collision::CuCollisionModelSpec).
+            // speed: peak joint speed in deg/s, acceleration in deg/s^2.
+            config: {
+                "chain": {
+                    "joints": [
+                        {
+                            "joint_type": "revolute",
+                            "origin_translation": [0, 0, 0.061],
+                            "origin_rpy": [0, 0, 0],
+                            "axis": "pos_z",
+                            "limits": {"revolute": {"lower": -1.92, "upper": 1.92, "max_velocity": 3.0}}
+                        },
+                        {
+                            "joint_type": "revolute",
+                            "origin_translation": [0, 0, 0.03],
+                            "origin_rpy": [0, 0, 0],
+                            "axis": "pos_y",
+                            "limits": {"revolute": {"lower": -1.57, "upper": 1.57, "max_velocity": 3.0}}
+                        },
+                        {
+                            "joint_type": "revolute",
+                            "origin_translation": [0, 0, 0.116],
+                            "origin_rpy": [0, 0, 0],
+                            "axis": "pos_y",
+                            "limits": {"revolute": {"lower": -1.57, "upper": 1.57, "max_velocity": 3.0}}
+                        },
+                        {
+                            "joint_type": "revolute",
+                            "origin_translation": [0, 0, 0.135],
+                            "origin_rpy": [0, 0, 0],
+                            "axis": "pos_y",
+                            "limits": {"revolute": {"lower": -1.57, "upper": 1.57, "max_velocity": 3.0}}
+                        },
+                        {
+                            "joint_type": "revolute",
+                            "origin_translation": [0, 0, 0.04],
+                            "origin_rpy": [0, 0, 0],
+                            "axis": "pos_z",
+                            "limits": {"revolute": {"lower": -2.96, "upper": 2.96, "max_velocity": 3.0}}
+                        }
+                    ]
+                },
+                "collision_model": {
+                    "shapes": [
+                        {"shape": {"capsule": {"a": [0, 0, -0.01], "b": [0, 0, 0.025], "radius": 0.03}}, "frame": 0},
+                        {"shape": {"capsule": {"a": [0, 0, 0.02], "b": [0, 0, 0.096], "radius": 0.022}}, "frame": 1},
+                        {"shape": {"capsule": {"a": [0, 0, 0.02], "b": [0, 0, 0.115], "radius": 0.02}}, "frame": 2},
+                        {"shape": {"capsule": {"a": [0, 0, 0.01], "b": [0, 0, 0.03], "radius": 0.02}}, "frame": 3},
+                        {"shape": {"capsule": {"a": [0, 0, 0.01], "b": [0, 0, 0.09], "radius": 0.02}}, "frame": 4}
+                    ],
+                    "safety_margin": 0.005,
+                    "skip_adjacent_links": true
+                },
+                // Planner for JPlanned steps: rrt_connect (default), rrt_star,
+                // prm, a_star, stomp, path_optimizer, direct.
+                "planner": "rrt_connect",
+                "speed": 30.0,
+                "acceleration": 60.0,
+            },
+        ),
+    ],
+    bridges: [
+        (
+            id: "robot",
+            // Standard robot channels over the MuJoCo sidecar (src/sim.rs).
+            type: "sim::SimRobot<5>",
+            config: {
+                "host": "{{ robot_address | split: ":" | first }}",
+                "port": {{ robot_address | split: ":" | last }},
+                "read_timeout": 0.25,
+            },
+            channels: [
+                Rx(id: "joint_state", msg: "repose_kinematics::CuJointStatePayload<5>"),
+                Rx(id: "session_state", msg: "repose_robot_interface::CuSessionState"),
+                Tx(id: "session", msg: "repose_robot_interface::CuSessionCommand"),
+                Tx(id: "joint_command", msg: "repose_controller::CuJointCommandPayload<5>"),
+            ],
+        ),
+    ],
+    cnx: [
+        (src: "robot/joint_state", dst: "program", msg: "repose_kinematics::CuJointStatePayload<5>"),
+        (src: "robot/session_state", dst: "program", msg: "repose_robot_interface::CuSessionState"),
+        (src: "program", dst: "robot/session", msg: "repose_robot_interface::CuSessionCommand"),
+        (src: "program", dst: "robot/joint_command", msg: "repose_controller::CuJointCommandPayload<5>"),
+    ],
+)
