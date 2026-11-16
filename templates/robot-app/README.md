@@ -17,7 +17,7 @@ The default program offsets all joints by 5° and back, then waits. Absolute
 targets and tool moves must suit the robot and its starting pose.
 
 `JPlanned` uses `repose::planners::CuAnyPlanner` and `CuPlannerChoice` from Repose
-commit `e554cca` (pose and Cartesian planning). Set `"planner"` in `copperconfig.ron` to `rrt_connect` (default),
+commit `54e23b9` (pose and Cartesian planning). Set `"planner"` in `copperconfig.ron` to `rrt_connect` (default),
 `rrt_star`, `prm`, `a_star`, `stomp`, `path_optimizer` or `direct`. The same runner
 performs preflight checks and streams timed trajectories for both robots.
 
@@ -39,9 +39,7 @@ joint-state timestamps are the Copper receive time. The bundled
 straight-arm model with approximate collision capsules, not a calibrated
 SO-ARM100 or SO-101; the gripper is not simulated. With five joints a TCP pose
 fixes more than the arm can reach, so `TCPRelative`/`TCPAbsolut` targets must
-be reachable with the held orientation. This profile uses the newer Repose
-commit `54e23b9` (joint-count-generic MuJoCo bridge); the hardware profiles
-stay on `e554cca`.
+be reachable with the held orientation.
 
 For URSim, start the repository's `universal_robots/repose_ur/compose.yaml`,
 complete initial PolyScope setup, and enable **and select** Remote Control.

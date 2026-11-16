@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Pin all Repose crates to commit `54e23b9` (was `e554cca`) in every bridge,
+  example app and the robot-app template, so all template robots share one
+  Repose revision. Projects that depend on these bridges must use the same
+  Repose commit for compatible shared types.
+
 - **Breaking:** The robot-app template runner is generic over the joint count:
   `runner::RobotProgram<N>`, `Step<N>` (joint targets are `[f64; N]`), and
   `program::steps::<N>()`. The igus ReBeL and UR5e profiles now write
@@ -16,7 +21,7 @@
   template: a simulated 5-DOF arm driven by a bundled MuJoCo sidecar
   (`sim/sidecar.py`, `sim/so_arm100.urdf`) through `sim::SimRobot<5>`, which
   wraps `repose_mujoco_sim::CuMujocoSimBridge<5>` with the standard robot
-  channels. Uses Repose `54e23b9`; the igus and UR profiles stay on `e554cca`.
+  channels.
   Verified end to end in simulation only.
 
 - Add `repose-panthera-ht` under `panthera/`: Copper bridge for the HighTorque
